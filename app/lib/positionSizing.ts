@@ -27,7 +27,7 @@ export function calculateAdaptivePositionSize(input: PositionSizingInput): Posit
       confidenceAdjustedSize: 0,
       estimatedCost: 0,
       maxRiskAmount: 0,
-      warnings: ["Entry price must be greater than stop loss."]
+      warnings: ["研究進場價必須高於停損價。"]
     };
   }
 
@@ -47,11 +47,11 @@ export function calculateAdaptivePositionSize(input: PositionSizingInput): Posit
   const suggestedPositionPct = (estimatedCost / input.capital) * 100;
 
   const warnings = [
-    input.marketRegime === "riskOff" ? "Market regime is risk-off; reduce all event strategy sizing." : "",
-    input.eventRisk === "high" || input.eventRisk === "critical" ? "Event risk is elevated; lower the position size and require confirmation." : "",
-    input.themeConcentrationPct > 40 ? "Theme concentration is high; avoid adding correlated exposure." : "",
-    input.volatility20d > 32 ? "Recent volatility is high; position size has been reduced." : "",
-    input.confidence < 50 ? "Event confidence is low; size is reduced until data improves." : ""
+    input.marketRegime === "riskOff" ? "市場處於風險趨避，所有事件策略都應下修部位。" : "",
+    input.eventRisk === "high" || input.eventRisk === "critical" ? "事件風險偏高，降低部位並等待確認。" : "",
+    input.themeConcentrationPct > 40 ? "題材集中度偏高，避免新增高度相關曝險。" : "",
+    input.volatility20d > 32 ? "近期波動偏高，已下修建議部位。" : "",
+    input.confidence < 50 ? "事件可信度偏低，資料改善前應降低部位。" : ""
   ].filter(Boolean);
 
   return {

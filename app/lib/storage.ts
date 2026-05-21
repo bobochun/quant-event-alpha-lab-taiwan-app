@@ -70,7 +70,7 @@ export function resetLocalData(): void {
 export function clearDemoData(): void {
   saveEvents([]);
   saveTradePlans([]);
-  savePortfolio({ ...mockPortfolio, positions: [], cash: 0, dataSource: "Manual", sourceNote: "Manual local data." });
+  savePortfolio({ ...mockPortfolio, positions: [], cash: 0, dataSource: "Manual", sourceNote: "手動本機資料。" });
   saveJournal([]);
-  saveSettings({ ...mockSettings, dataMode: "Manual", enableDemoData: false, dataSource: "Manual", sourceNote: "Manual local data." });
+  saveSettings({ ...mockSettings, dataMode: "Manual", enableDemoData: false, dataSource: "Manual", sourceNote: "手動本機資料。" });
 }

@@ -133,9 +133,9 @@ export function calculateCombinedAlphaScore(event: Event, stock: Stock | undefin
   );
   const warnings = [
     ...catalyst.warnings,
-    pricedInRisk === "high" || pricedInRisk === "critical" ? "Event may already be priced in; chase risk is elevated." : "",
-    overheatPenalty >= 15 ? "Technical or volume overheat detected; wait for pullback." : "",
-    liquidityPenalty > 0 ? "Liquidity is below preferred threshold; reduce size." : ""
+    pricedInRisk === "high" || pricedInRisk === "critical" ? "事件可能已被市場部分反應，追高風險上升。" : "",
+    overheatPenalty >= 15 ? "技術面或量能過熱，優先等待回測。" : "",
+    liquidityPenalty > 0 ? "流動性低於偏好門檻，應下修部位。" : ""
   ].filter(Boolean);
   return {
     combinedAlphaScore,
@@ -152,7 +152,7 @@ export function calculateCombinedAlphaScore(event: Event, stock: Stock | undefin
     dispositionPenalty,
     pricedInPenalty,
     nextAction: alphaAction(combinedAlphaScore, warnings, pricedInRisk),
-    explanation: `Alpha combines catalyst ${round(catalyst.totalCatalystScore)}, trend ${round(quantTrendScore)}, flow ${round(flowConfirmationScore)}, theme ${round(themeMomentumScore)}, then subtracts overheat, liquidity, data-quality and priced-in penalties.`,
+    explanation: `綜合 Alpha 分數結合催化 ${round(catalyst.totalCatalystScore)}、趨勢 ${round(quantTrendScore)}、籌碼 ${round(flowConfirmationScore)}、題材 ${round(themeMomentumScore)}，再扣除過熱、流動性、資料品質與已反應風險。`,
     warnings
   };
 }
@@ -188,8 +188,8 @@ export function calculateThemeHeat(themes: Theme[], events: Event[], stocks: Sto
       relatedSymbols: theme.relatedSymbols,
       upcomingEvents: events.filter((event) => event.relatedThemes.includes(theme.name) && daysBetween(todayTaipei(), event.eventDate) <= 7).length,
       overheatedSymbols,
-      warnings: [theme.isOverheated ? "Theme appears crowded; avoid chasing the hottest names." : "", theme.dataSource === "Demo" ? "Demo theme data only." : ""].filter(Boolean),
-      explanation: "Theme heat favors early acceleration with broad participation, while penalizing crowded limit-up clusters.",
+      warnings: [theme.isOverheated ? "題材已偏擁擠，避免追最熱標的。" : "", theme.dataSource === "Demo" ? "示範題材資料，非即時市場資料。" : ""].filter(Boolean),
+      explanation: "題材熱度偏重剛升溫且多檔同步轉強，並扣除過度擁擠與漲停群聚風險。",
       dataSource: theme.dataSource,
       sourceNote: theme.sourceNote
     };
@@ -197,7 +197,7 @@ export function calculateThemeHeat(themes: Theme[], events: Event[], stocks: Sto
 }
 
 function makeAlert(severity: RiskLevel, category: RiskAlert["category"], symbol: string | undefined, message: string, suggestedAction: string): RiskAlert {
-  return { id: `generated-${category}-${symbol ?? message}`, severity, category, symbol, message, suggestedAction, createdAt: new Date().toISOString(), dataSource: "Estimated", sourceNote: "Generated from local portfolio inputs." };
+  return { id: `generated-${category}-${symbol ?? message}`, severity, category, symbol, message, suggestedAction, createdAt: new Date().toISOString(), dataSource: "Estimated", sourceNote: "由本機投組資料估算產生。" };
 }
 
 export function analyzePortfolioExposure(portfolio: Portfolio): PortfolioExposureResult {
@@ -213,7 +213,7 @@ export function analyzePortfolioExposure(portfolio: Portfolio): PortfolioExposur
   };
   const themeExposure = groupBy(portfolio.positions, (position) => position.tags);
   const strategyExposure = groupBy(portfolio.positions, (position) => [position.strategy]);
-  const eventDateExposure = groupBy(portfolio.positions, (position) => [position.relatedEventId ?? "No Event"]);
+  const eventDateExposure = groupBy(portfolio.positions, (position) => [position.relatedEventId ?? "未關聯事件"]);
   const marketBetaExposure = portfolio.positions.reduce((sum, position) => {
     const beta = position.tags.some((tag) => ["AI server", "CoWoS", "PCB", "Thermal", "Defense"].includes(tag)) ? 1.25 : position.tags.includes("Dividend ETF") ? 0.75 : 1;
     return sum + pct(position.shares * position.currentPrice) * beta;
@@ -223,31 +223,31 @@ export function analyzePortfolioExposure(portfolio: Portfolio): PortfolioExposur
     return sum + pct(position.shares * position.currentPrice) * vol / 100;
   }, 0);
   const correlationGroups = groupBy(portfolio.positions, (position) => {
-    if (position.tags.some((tag) => ["AI server", "CoWoS", "Thermal", "PCB"].includes(tag))) return ["AI supply chain"];
-    if (position.tags.includes("Shipping")) return ["Shipping cycle"];
-    if (position.tags.includes("Dividend ETF")) return ["Yield factor"];
-    return ["Other"];
+    if (position.tags.some((tag) => ["AI server", "CoWoS", "Thermal", "PCB"].includes(tag))) return ["AI 供應鏈"];
+    if (position.tags.includes("Shipping")) return ["航運循環"];
+    if (position.tags.includes("Dividend ETF")) return ["殖利率因子"];
+    return ["其他"];
   });
   const alerts: RiskAlert[] = [];
   portfolio.positions.forEach((position) => {
     const exposure = pct(position.shares * position.currentPrice);
-    if (exposure > 20) alerts.push(makeAlert("high", "Position Risk", position.symbol, `Single position exposure ${exposure}% exceeds 20%.`, "Reduce position or increase cash buffer."));
-    if (!position.stopLoss) alerts.push(makeAlert("high", "Position Risk", position.symbol, "Position has no stop loss or invalidation rule.", "Add stop and event invalidation rule."));
-    if (position.stopLoss && position.currentPrice <= position.stopLoss) alerts.push(makeAlert("critical", "Position Risk", position.symbol, "Price is below stop loss.", "Review exit discipline immediately."));
+    if (exposure > 20) alerts.push(makeAlert("high", "Position Risk", position.symbol, `單一股票曝險 ${exposure}% 超過 20%。`, "降低部位或提高現金緩衝。"));
+    if (!position.stopLoss) alerts.push(makeAlert("high", "Position Risk", position.symbol, "尚未設定停損或事件失效條件。", "補上停損與事件失效規則。"));
+    if (position.stopLoss && position.currentPrice <= position.stopLoss) alerts.push(makeAlert("critical", "Position Risk", position.symbol, "已跌破停損價。", "立即檢查出場紀律。"));
   });
   Object.entries(themeExposure).forEach(([theme, value]) => {
-    if (value > 40) alerts.push(makeAlert("high", "Portfolio Risk", undefined, `${theme} exposure ${value}% exceeds 40%.`, "Pause new plans in the same theme."));
+    if (value > 40) alerts.push(makeAlert("high", "Portfolio Risk", undefined, `${theme} 題材曝險 ${value}% 超過 40%。`, "暫停新增同題材計畫，先檢查既有部位停損。"));
   });
   Object.entries(eventDateExposure).forEach(([eventKey, value]) => {
-    if (eventKey !== "No Event" && value > 35) alerts.push(makeAlert("medium", "Portfolio Risk", undefined, `Same-event exposure ${value}% is elevated.`, "Diversify event dates or reduce event-day risk."));
+    if (eventKey !== "未關聯事件" && value > 35) alerts.push(makeAlert("medium", "Portfolio Risk", undefined, `同一事件曝險 ${value}% 偏高。`, "分散事件日期或降低事件日前後風險。"));
   });
   Object.entries(strategyExposure).forEach(([strategy, value]) => {
-    if (value > 45) alerts.push(makeAlert("medium", "Portfolio Risk", undefined, `${strategy} exposure ${value}% is elevated.`, "Review strategy concentration."));
+    if (value > 45) alerts.push(makeAlert("medium", "Portfolio Risk", undefined, `${strategy} 策略曝險 ${value}% 偏高。`, "檢查策略集中度，避免單一 playbook 失效時受傷過大。"));
   });
   Object.entries(correlationGroups).forEach(([group, value]) => {
-    if (value > 45) alerts.push(makeAlert("high", "Portfolio Risk", undefined, `${group} correlation-like exposure ${value}% is elevated.`, "Treat different names as correlated risk."));
+    if (value > 45) alerts.push(makeAlert("high", "Portfolio Risk", undefined, `${group} 相關性曝險 ${value}% 偏高。`, "即使股票不同，也要視為相近風險來源。"));
   });
-  if (pct(portfolio.cash) < 10) alerts.push(makeAlert("medium", "Portfolio Risk", undefined, "Cash is below 10%.", "Keep a buffer for event volatility."));
+  if (pct(portfolio.cash) < 10) alerts.push(makeAlert("medium", "Portfolio Risk", undefined, "現金比例低於 10%。", "保留事件波動所需的現金緩衝。"));
   return {
     totalAssetValue,
     cash: portfolio.cash,
@@ -291,13 +291,13 @@ export function analyzeBehaviorRisk(journal: JournalEntry[]): BehaviorAnalyticsR
   const earlyExitRate = closed.length ? closed.filter((entry) => entry.mistakeType?.toLowerCase().includes("early exit")).length / closed.length : 0;
   const behaviorScore = clamp(100 - chaseRate * 22 - pricedInRate * 24 - planBreakRate * 28 - fomoRate * 18 - noStopRate * 18 - addLoserRate * 25 - concentrationRate * 16 - earlyExitRate * 12);
   const warnings = [
-    chaseRate > 0.25 ? "Event-news chasing rate is elevated." : "",
-    pricedInRate > 0.25 ? "Entries after priced-in events are frequent." : "",
-    planBreakRate > 0.25 ? "Plan-following discipline is weak." : "",
-    noStopRate > 0.15 ? "No-stop behavior appears in journal records." : "",
-    addLoserRate > 0.1 ? "Adding to losers appears in journal records." : "",
-    concentrationRate > 0.1 ? "Over-concentration behavior appears in journal records." : "",
-    earlyExitRate > 0.2 ? "Early exits appear frequent; compare with planned exits." : ""
+    chaseRate > 0.25 ? "追事件新聞的比例偏高。" : "",
+    pricedInRate > 0.25 ? "買在事件已反應後的比例偏高。" : "",
+    planBreakRate > 0.25 ? "未遵守交易計畫的比例偏高。" : "",
+    noStopRate > 0.15 ? "日誌中出現未設停損行為。" : "",
+    addLoserRate > 0.1 ? "日誌中出現虧損加碼行為。" : "",
+    concentrationRate > 0.1 ? "日誌中出現過度集中行為。" : "",
+    earlyExitRate > 0.2 ? "太早賣出的比例偏高，請與原計畫出場規則比較。" : ""
   ].filter(Boolean);
   return {
     behaviorScore,
@@ -307,14 +307,14 @@ export function analyzeBehaviorRisk(journal: JournalEntry[]): BehaviorAnalyticsR
     averageLoss: round(averageLoss),
     expectancy: round(winRate * averageWin + (1 - winRate) * averageLoss),
     profitFactor: grossLoss > 0 ? round(grossWin / grossLoss, 2) : grossWin > 0 ? 99 : 0,
-    mostCommonMistake: Object.entries(mistakeCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "None recorded",
+    mostCommonMistake: Object.entries(mistakeCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "尚無紀錄",
     bestStrategy: byStrategy.best,
     worstStrategy: byStrategy.worst,
     disciplineScore: clamp(100 - planBreakRate * 60 - fomoRate * 25),
     bestEventType: byEvent.best,
     worstEventType: byEvent.worst,
     warnings,
-    suggestions: ["Write invalidation before sizing.", "Wait for pullback if pre-event return and volume are extended.", "Review FOMO and priced-in entries every week."]
+    suggestions: ["部位試算前先寫下事件失效條件。", "若事件前漲幅與量能已放大，等待回測後再評估。", "每週檢查 FOMO 與買在已反應後的交易。"]
   };
 }
 
@@ -327,7 +327,7 @@ function summarizeBy(entries: JournalEntry[], keyFn: (entry: JournalEntry) => st
     return acc;
   }, {});
   const ranked = Object.entries(grouped).map(([key, value]) => [key, value.sum / value.count] as const).sort((a, b) => b[1] - a[1]);
-  return { best: ranked[0]?.[0] ?? "N/A", worst: ranked[ranked.length - 1]?.[0] ?? "N/A" };
+  return { best: ranked[0]?.[0] ?? "無資料", worst: ranked[ranked.length - 1]?.[0] ?? "無資料" };
 }
 
 export { calculateCatalystTimingScore };

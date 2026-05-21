@@ -1,24 +1,46 @@
-# Data Sources
+# 資料來源
 
-MVP data is demo-only unless the user imports or enters manual data.
+MVP 預設使用示範資料。除非使用者手動輸入或匯入 JSON，否則資料都不是即時市場資料。
 
-Supported source states:
+## 資料來源狀態
 
-- Real
-- Cached
-- Manual
-- Imported
-- Estimated
-- Demo
-- Missing
+- Real：真實
+- Cached：快取
+- Manual：手動
+- Imported：匯入
+- Estimated：估算
+- Demo：示範
+- Missing：缺資料
 
-Every demo row includes:
+## 示範資料標示
+
+每筆示範資料都包含：
 
 ```json
 {
   "dataSource": "Demo",
-  "sourceNote": "Demo data for MVP testing. Not real-time market data."
+  "sourceNote": "示範資料，不是真實即時市場資料。"
 }
 ```
 
-Future real/manual datasets should avoid paid report full-text scraping and should store only source metadata unless permission exists.
+## 資料類型
+
+- 股價資料
+- 成交量資料
+- 法人籌碼
+- 月營收
+- 財報
+- 除權息
+- 法說會
+- ETF 成分調整
+- 外資報告 metadata
+- 股東會紀念品
+- 大戶持股變化
+- 注意股 / 處置股
+- 題材新聞
+- 市場狀態
+- Benchmark
+
+## 未來資料規劃
+
+可優先支援公開資料或使用者手動匯入，不抓付費報告全文，不侵犯新聞版權，不接券商 API，不做自動下單。

@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { analyzePortfolioExposure, buildAlphaEngineResults, calculateThemeHeat, classifyMarketRegime } from "./lib/alphaEngine";
 import { mockEvents, mockPortfolio, mockStocks, mockThemes, mockTradePlans } from "./lib/mockData";
-import { daysBetween, todayTaipei } from "./lib/utils";
+import { generateTodayActionList } from "./lib/actionList";
+import { daysBetween, formatDataSource, formatRiskLevel, MARKET_REGIME_LABELS, todayTaipei, VOLATILITY_LABELS, localizeTheme } from "./lib/utils";
 import { ActionList, CatalystTable, DataSourceBadge, MiniMetricGrid, SectionCard } from "./components/ui";
 
 export default function CommandCenterPage() {
@@ -10,79 +11,110 @@ export default function CommandCenterPage() {
   const regime = classifyMarketRegime(mockStocks);
   const themes = calculateThemeHeat(mockThemes, mockEvents, mockStocks);
   const exposure = analyzePortfolioExposure(mockPortfolio);
-  const actions = [
-    ...rows.filter((row) => row.alpha.combinedAlphaScore >= 65 && !mockTradePlans.some((plan) => plan.relatedEventId === row.event.id)).slice(0, 3).map((row) => `High catalyst without plan: ${row.event.symbol} ${row.event.name}`),
-    ...rows.filter((row) => row.overheatRisk === "high" || row.overheatRisk === "critical").slice(0, 2).map((row) => `Near event but overheated: ${row.event.symbol}. Avoid chasing.`),
-    ...rows.filter((row) => row.event.confidence < 50).slice(0, 2).map((row) => `Event with low data confidence: ${row.event.symbol}`),
-    ...Object.entries(exposure.themeExposure).filter(([, value]) => value > 35).map(([theme]) => `Portfolio theme exposure elevated: ${theme}`),
-    "Write today's trading journal before adding new risk.",
-    "Review Low Base Catalyst and Event Pullback strategy candidates this week."
-  ];
+  const actions = generateTodayActionList({
+    rows,
+    plannedEventIds: mockTradePlans.map((plan) => plan.relatedEventId).filter((id): id is string => Boolean(id)),
+    exposure,
+    hasJournalToday: false
+  });
+  const unpricedCandidates = rows.filter((row) => row.alpha.combinedAlphaScore >= 65 && row.pricedInRisk !== "high" && row.pricedInRisk !== "critical").length;
+  const overheated = rows.filter((row) => row.overheatRisk === "high" || row.overheatRisk === "critical").length;
+
+  const workflow = [
+    ["檢查市場狀態", "確認今天總水位與風險環境", "/"],
+    ["查看事件催化雷達", "先看未來 7 天事件與已反應風險", "/event-radar"],
+    ["挑 1–3 檔研究標的", "只保留尚未完全反應的候選", "/event-radar"],
+    ["建立交易計畫", "先算最大虧損、股數與張數", "/trade-plan"],
+    ["檢查投組曝險", "避免同題材、同事件日過度集中", "/portfolio"],
+    ["寫入交易日誌", "記錄是否追高、是否遵守計畫", "/journal"]
+  ] as const;
 
   return (
     <div className="space-y-5">
-      <section className="rounded-lg border border-slate-800 bg-[#0d1520]/90 p-5 shadow-[0_18px_55px_rgba(0,0,0,0.22)]">
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-300">Daily Command Center</p>
-            <h1 className="mt-2 text-2xl font-semibold text-white">Quant Event Alpha Lab Taiwan</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
-              Find upcoming event catalysts, filter out overheated or already priced-in names, create risk-controlled plans, and keep the journal honest.
+            <p className="text-xs font-semibold tracking-[0.2em] text-emerald-700">每日主控台</p>
+            <h1 className="mt-2 text-3xl font-semibold text-slate-950">台股量化事件研究室</h1>
+            <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">
+              用事件催化、題材熱度、量化分數與風控紀律，找出未來 7 天值得研究的台股標的。
+            </p>
+            <p className="mt-3 max-w-5xl rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
+              本工具僅供個人研究、策略模擬、事件追蹤與風險控管，不構成投資建議。所有交易請自行判斷並承擔風險。
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <DataSourceBadge source="Demo" />
-            <span className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-300">No automated orders</span>
-            <span className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-300">No broker API</span>
+            <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-600">不做自動下單</span>
+            <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-600">不接券商 API</span>
           </div>
         </div>
       </section>
 
-      <div className="grid gap-3 xl:grid-cols-6">
-        {["Market state", "7-day catalysts", "Priced-in vs overheated", "Pick 3 plans", "Portfolio exposure", "Journal / export"].map((step, index) => (
-          <div key={step} className="rounded-md border border-slate-800 bg-[#0a121c] px-3 py-3">
-            <div className="text-[11px] uppercase tracking-wide text-slate-500">Step {index + 1}</div>
-            <div className="mt-1 text-sm font-medium text-slate-200">{step}</div>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        {[
+          ["今日市場狀態", MARKET_REGIME_LABELS[regime.regime], `建議總水位 ${regime.suggestedGrossExposurePct}%`],
+          ["未來 7 天高催化事件", rows.filter((row) => row.catalyst.totalCatalystScore >= 70).length, `${upcoming.length} 筆事件待檢查`],
+          ["尚未反應候選", unpricedCandidates, "優先建立研究計畫"],
+          ["已過熱 / 避免追高", overheated, "等待回測或新確認"],
+          ["今日待辦事項", actions.length, "依優先級處理"]
+        ].map(([label, value, helper]) => (
+          <div key={label} className="rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
+            <div className="text-xs font-medium text-slate-500">{label}</div>
+            <div className="mt-2 text-2xl font-semibold text-slate-950">{value}</div>
+            <div className="mt-1 text-xs text-slate-500">{helper}</div>
           </div>
         ))}
       </div>
 
+      <SectionCard title="3 分鐘工作流">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {workflow.map(([title, helper, href], index) => (
+            <Link key={title} href={href} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3 hover:border-emerald-300 hover:bg-emerald-50">
+              <div className="text-xs font-semibold text-emerald-700">步驟 {index + 1}</div>
+              <div className="mt-1 font-semibold text-slate-950">{title}</div>
+              <div className="mt-1 text-xs leading-5 text-slate-600">{helper}</div>
+            </Link>
+          ))}
+        </div>
+      </SectionCard>
+
       <div className="grid gap-4 xl:grid-cols-3">
-        <SectionCard title="Market Regime Card">
+        <SectionCard title="今日市場狀態">
           <MiniMetricGrid items={[
-            { label: "Regime", value: regime.regime },
-            { label: "Suggested Gross", value: `${regime.suggestedGrossExposurePct}%` },
-            { label: "Volatility", value: regime.volatilityState },
-            { label: "Data", value: regime.dataSource }
+            { label: "市場狀態", value: MARKET_REGIME_LABELS[regime.regime] },
+            { label: "建議總水位", value: `${regime.suggestedGrossExposurePct}%` },
+            { label: "波動狀態", value: VOLATILITY_LABELS[regime.volatilityState] },
+            { label: "資料來源", value: formatDataSource(regime.dataSource) }
           ]} />
-          <p className="mt-3 text-xs leading-5 text-slate-400">{regime.explanation}</p>
+          <p className="mt-3 text-xs leading-5 text-slate-600">依示範股價、波動與相對強弱估算目前市場狀態；若市場轉為風險趨避，所有事件策略都應下修部位。</p>
         </SectionCard>
 
-        <SectionCard title="7-Day Catalyst Snapshot">
+        <SectionCard title="未來 7 天事件快照">
           <MiniMetricGrid items={[
-            { label: "Events", value: upcoming.length },
-            { label: "High Catalyst", value: rows.filter((row) => row.catalyst.totalCatalystScore >= 70).length },
-            { label: "Overheated", value: rows.filter((row) => row.overheatRisk === "high" || row.overheatRisk === "critical").length },
-            { label: "Low Confidence", value: rows.filter((row) => row.event.confidence < 50).length }
+            { label: "事件總數", value: upcoming.length },
+            { label: "高催化事件", value: rows.filter((row) => row.catalyst.totalCatalystScore >= 70).length },
+            { label: "已過熱", value: overheated },
+            { label: "低可信度", value: rows.filter((row) => row.event.confidence < 50).length }
           ]} />
-          <div className="mt-3 rounded-md border border-cyan-400/20 bg-cyan-400/10 px-3 py-2 text-sm text-cyan-100">Hottest theme: {themes[0]?.theme ?? "N/A"}</div>
+          <div className="mt-3 rounded-md border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm text-cyan-900">目前最熱題材：{themes[0] ? localizeTheme(themes[0].theme) : "無資料"}</div>
         </SectionCard>
 
-        <SectionCard title="Quick Actions">
+        <SectionCard title="快速操作">
           <div className="grid gap-2 text-sm">
-            <Link className="rounded-md bg-emerald-400 px-3 py-2 font-semibold text-slate-950" href="/event-radar">Add / review events</Link>
-            <Link className="rounded-md bg-cyan-400 px-3 py-2 font-semibold text-slate-950" href="/trade-plan">Create trade plan</Link>
-            <Link className="rounded-md border border-slate-700 px-3 py-2 text-slate-300 hover:bg-slate-800" href="/reports">Export weekly report</Link>
-            <Link className="rounded-md border border-slate-700 px-3 py-2 text-slate-300 hover:bg-slate-800" href="/settings">JSON backup / import</Link>
+            <Link className="rounded-md bg-emerald-600 px-3 py-2 font-semibold text-white" href="/event-radar">檢查事件催化雷達</Link>
+            <Link className="rounded-md bg-cyan-600 px-3 py-2 font-semibold text-white" href="/trade-plan">建立交易計畫</Link>
+            <Link className="rounded-md border border-slate-200 px-3 py-2 text-slate-700 hover:bg-slate-50" href="/reports">匯出週報</Link>
+            <Link className="rounded-md border border-slate-200 px-3 py-2 text-slate-700 hover:bg-slate-50" href="/settings">匯出 / 匯入 JSON 備份</Link>
           </div>
         </SectionCard>
       </div>
 
-      <SectionCard title="Top Catalyst Table">
+      <SectionCard title="高催化事件清單">
         <CatalystTable rows={rows} limit={10} />
       </SectionCard>
 
-      <SectionCard title="Today Action List">
+      <SectionCard title="今日待辦事項">
         <ActionList items={actions} />
       </SectionCard>
     </div>

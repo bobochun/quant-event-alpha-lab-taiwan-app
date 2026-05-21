@@ -3,8 +3,8 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: dark;
-  background: #070b10;
+  color-scheme: light;
+  background: #f1f5f9;
 }
 
 html {
@@ -13,8 +13,8 @@ html {
 
 body {
   margin: 0;
-  background: #070b10;
-  color: #e5edf8;
+  background: #f1f5f9;
+  color: #0f172a;
 }
 
 * {
@@ -59,14 +59,14 @@ button:hover {
 }
 
 ::-webkit-scrollbar-track {
-  background: #0b1220;
+  background: #e2e8f0;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #263447;
+  background: #94a3b8;
   border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #36506a;
+  background: #64748b;
 }

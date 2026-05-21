@@ -1,85 +1,58 @@
-# Quant Event Alpha Lab Taiwan
+# 台股量化事件研究室
 
-Quant Event Alpha Lab Taiwan is a personal research terminal for Taiwan stock event-driven quant workflows.
+Quant Event Alpha Lab Taiwan 是個人用台股事件驅動研究終端，用來追蹤未來 7 天事件催化、題材熱度、綜合 Alpha 分數、已反應風險、部位大小、投組曝險與交易紀律。
 
-It is designed to help review possible catalysts over the next 7 days, compare catalyst strength, theme heat, technical structure, flow confirmation, overheat risk, priced-in risk, position sizing, portfolio exposure, and trading discipline.
+本工具僅供個人研究、策略模擬、事件追蹤與風險控管，不構成投資建議。所有交易請自行判斷並承擔風險。
 
-This is not an investment advisory website. It does not provide stock tips, guaranteed returns, copy trading, broker API integration, or automated order placement.
+## 目前內容
 
-Important disclaimer shown in the app:
+- Next.js App Router、TypeScript、Tailwind CSS、Recharts
+- 每日主控台、事件催化雷達、題材熱度雷達、交易計畫、投組風控、風控中心、交易日誌、報告匯出、資料狀態中心、設定與備份
+- Alpha Engine、事件評分、已反應 / 過熱風險、Adaptive Position Sizing
+- MVP 使用瀏覽器 `localStorage` 儲存資料
+- JSON 匯出 / 匯入，方便換電腦移動使用者資料
+- 示範資料明確標示：`示範資料，不是真實即時市場資料。`
 
-> This tool is for personal research, strategy simulation, event tracking, and risk control only. It is not investment advice. All trading decisions and risks are your own responsibility.
+## 本機啟動
 
-## What Is Included
+需求：
 
-- Next.js App Router
-- TypeScript
-- Tailwind CSS
-- Recharts
-- Next.js Route Handlers
-- Client-side `localStorage` for MVP user data
-- JSON import/export backup flow for moving data across computers
-- Demo data clearly marked as non-real-time
-- Vercel-first deployment config
-
-## Local Development
-
-Requirements:
-
-- Node.js 20 LTS or newer
+- Node.js 20 LTS 或更新
 - npm
 - Git
-
-Run locally:
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open:
+打開：
 
 ```text
 http://localhost:3000
 ```
 
-## Checks And Build
+## 檢查與 Build
 
 ```bash
-npm run lint
 npm run typecheck
+npm run lint
 npm run build
 ```
 
-If `npm` or `git` is not recognized on Windows, install Node.js and Git for Windows, then open a new terminal so `PATH` is refreshed.
+## 部署到 Vercel
 
-## GitHub Push
+方法 A：GitHub + Vercel Dashboard
 
-Create an empty GitHub repository first, then run:
+1. 將專案 push 到 GitHub。
+2. 到 Vercel Dashboard 匯入 GitHub repo。
+3. Framework 選 Next.js。
+4. Build command：`npm run build`。
+5. Output directory：`.next`。
+6. 加入 `.env.example` 內的環境變數。
+7. Deploy。
 
-```bash
-git init
-git add .
-git commit -m "Build Quant Event Alpha Lab Super MVP"
-git branch -M quant-event-alpha-lab-super-mvp
-git remote add origin <YOUR_GITHUB_REPO_URL>
-git push -u origin quant-event-alpha-lab-super-mvp
-```
-
-## Vercel Deployment
-
-Method A, Vercel Dashboard:
-
-1. Push this project to GitHub.
-2. Open Vercel Dashboard.
-3. Import the GitHub repository.
-4. Framework preset: Next.js.
-5. Build command: `npm run build`.
-6. Output directory: `.next`.
-7. Add the environment variables from `.env.example`.
-8. Deploy.
-
-Method B, Vercel CLI:
+方法 B：Vercel CLI
 
 ```bash
 npm i -g vercel
@@ -89,19 +62,27 @@ vercel deploy
 vercel deploy --prod
 ```
 
-After Vercel imports the GitHub repository, future pushes to the production branch will auto deploy.
+## GitHub 存檔
 
-## Continue On Another Computer
+```bash
+git add .
+git commit -m "Update Quant Event Alpha Lab"
+git push
+```
 
-1. Push code to GitHub.
-2. Clone the repo on the other computer.
-3. Run `npm install`.
-4. Export local user data from `/settings`.
-5. Import that JSON backup from `/settings` on the new computer.
+程式碼靠 GitHub 保存，Vercel 只部署程式，不會同步瀏覽器裡的 localStorage 使用者資料。
 
-## Data Backup
+## 換電腦繼續修改
 
-User data is stored in browser `localStorage` for the MVP:
+1. 在舊電腦 push 程式碼到 GitHub。
+2. 在 `/settings` 匯出全部資料 JSON。
+3. 新電腦 clone GitHub repo。
+4. 執行 `npm install` 與 `npm run dev`。
+5. 到 `/settings` 匯入 JSON 備份。
+
+## JSON 備份 / 匯入
+
+MVP 使用 `localStorage` 儲存：
 
 - events
 - tradePlans
@@ -109,16 +90,21 @@ User data is stored in browser `localStorage` for the MVP:
 - journal
 - settings
 
-Use `/settings` to export or import a full JSON backup.
+換瀏覽器或換電腦前，請先到「設定與備份」匯出完整 JSON。
 
-Demo data is clearly marked with:
+## 資料狀態
 
-```text
-dataSource: "Demo"
-sourceNote: "Demo data for MVP testing. Not real-time market data."
-```
+目前仍是 demo data，不是真實即時市場資料。未來可規劃匯入或串接公開資料：
 
-## Main Docs
+- TWSE / TPEx 股價與成交量
+- 月營收、財報、除權息、法說會
+- ETF 成分調整
+- 注意股 / 處置股
+- 手動整理的題材與事件資料
+
+不接券商 API，不做自動下單。
+
+## 主要文件
 
 - `DEPLOYMENT.md`
 - `DEPLOYMENT_STATUS.md`

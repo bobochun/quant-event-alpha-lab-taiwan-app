@@ -7,5 +7,5 @@ export async function POST(request: Request) {
   const portfolio = analyzePortfolioExposure(body.portfolio ?? mockPortfolio);
   const behavior = analyzeBehaviorRisk(body.journal ?? mockJournal);
   const events = buildAlphaEngineResults(body.events ?? mockEvents, mockStocks, mockThemes);
-  return ok({ portfolio, behavior, events }, "Estimated", "Generated from supplied or demo inputs.");
+  return ok({ portfolio, behavior, events }, "Estimated", "由傳入資料或示範資料估算產生。");
 }

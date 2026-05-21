@@ -83,10 +83,10 @@ export function calculateCatalystScore(event: Event, stock?: Stock, themes: Them
       riskPenalty
   );
   const warnings = [
-    event.dataSource === "Demo" ? "Demo data only; not real-time market data." : "",
-    event.confidence < 45 ? "Data confidence is low." : "",
-    stock?.isDispositionStock ? "Disposition stock: trading restriction and liquidity risk are elevated." : "",
-    overheated ? "Price or volume may have reacted before the event." : ""
+    event.dataSource === "Demo" ? "示範資料，不是真實即時市場資料。" : "",
+    event.confidence < 45 ? "資料可信度偏低，僅適合觀察。" : "",
+    stock?.isDispositionStock ? "處置股：交易限制與流動性風險上升。" : "",
+    overheated ? "價格或量能可能已在事件前提前反應。" : ""
   ].filter(Boolean);
 
   return {
@@ -99,7 +99,7 @@ export function calculateCatalystScore(event: Event, stock?: Stock, themes: Them
     technicalSetupScore,
     riskPenalty,
     confidenceLevel: confidenceLabel(event.confidence),
-    reason: `Importance ${Math.round(eventImportanceScore)}, timing ${Math.round(timingScore)}, surprise ${Math.round(surprisePotentialScore)}.`,
+    reason: `事件重要性 ${Math.round(eventImportanceScore)}，時間分數 ${Math.round(timingScore)}，驚喜潛力 ${Math.round(surprisePotentialScore)}。`,
     warnings,
     nextAction: nextActionFrom(totalCatalystScore, riskPenalty, event.confidence, overheated)
   };

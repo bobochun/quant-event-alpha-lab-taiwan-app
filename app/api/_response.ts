@@ -8,6 +8,6 @@ export function ok<T>(data: T, dataSource: DataSource = "Demo", sourceNote = DEM
 }
 
 export function fail(error: string, status = 400) {
-  const body: ApiResponse<null> = { ok: false, data: null, error, dataSource: "Missing", sourceNote: "Request failed.", generatedAt: new Date().toISOString() };
+  const body: ApiResponse<null> = { ok: false, data: null, error, dataSource: "Missing", sourceNote: "請求失敗。", generatedAt: new Date().toISOString() };
   return NextResponse.json(body, { status });
 }

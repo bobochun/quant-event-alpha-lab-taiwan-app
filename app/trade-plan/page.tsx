@@ -8,18 +8,20 @@ import { loadJournal, loadTradePlans, saveJournal, saveTradePlans } from "../lib
 import { generateTradePlan, tradePlanToMarkdown } from "../lib/tradePlan";
 import type { PositionSizingResult, StrategyName } from "../lib/types";
 import { ErrorState, MiniMetricGrid, SectionCard, TradePlanCard, WarningList } from "../components/ui";
-import { daysBetween, todayTaipei } from "../lib/utils";
+import { daysBetween, formatSharesLots, formatStrategy, todayTaipei } from "../lib/utils";
 
 const strategies: StrategyName[] = ["Pre-Earnings Drift", "ETF Rebalance Flow", "AI Theme Rotation", "Low Base Catalyst", "Event Pullback", "Manual Event Research"];
 const numberLabels = {
-  capital: "Capital",
-  riskPerTradePct: "Risk per trade %",
-  maxPositionPct: "Max position %",
-  entryPrice: "Entry price",
-  stopLoss: "Stop loss",
-  takeProfit1: "Take profit 1",
-  takeProfit2: "Take profit 2"
+  capital: "可用資金",
+  riskPerTradePct: "單筆最大風險 %",
+  maxPositionPct: "單檔最高部位 %",
+  entryPrice: "研究進場價",
+  stopLoss: "停損價",
+  takeProfit1: "第一停利價",
+  takeProfit2: "第二停利價"
 } as const;
+
+const inputClass = "mt-1 w-full rounded-md border border-slate-200 bg-white p-2 text-slate-900 outline-none focus:border-cyan-500";
 
 export default function TradePlanPage() {
   const [plans, setPlans] = useState(mockTradePlans);
@@ -37,8 +39,8 @@ export default function TradePlanPage() {
     stopLoss: 884,
     takeProfit1: 990,
     takeProfit2: 1040,
-    eventInvalidationRule: "If the event thesis fails or price breaks stop loss, review and reduce risk.",
-    timeStopRule: "If there is no follow-through within 3 trading days after the event, reduce risk."
+    eventInvalidationRule: "若事件假設失效或跌破停損，必須重新檢查。",
+    timeStopRule: "若事件後 3 個交易日內沒有延續，降低風險或移出高優先研究。"
   });
 
   useEffect(() => setPlans(loadTradePlans()), []);
@@ -103,7 +105,7 @@ export default function TradePlanPage() {
       setMarkdown(tradePlanToMarkdown(plan));
       setAdaptive(sizing);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to generate plan.");
+      setError(err instanceof Error ? err.message : "無法產生交易計畫。");
     }
   }
 
@@ -121,68 +123,85 @@ export default function TradePlanPage() {
         eventType: relatedEvent?.eventType,
         price: form.entryPrice,
         shares: 0,
-        reason: "Trade plan created.",
+        reason: "已建立交易計畫。",
         eventThesis: form.eventInvalidationRule,
         wasEventPricedIn: false,
         didChaseNews: false,
         planFollowed: true,
         emotion: "disciplined",
         dataSource: "Manual",
-        sourceNote: "Manual journal note from trade plan."
+        sourceNote: "由交易計畫建立的手動日誌。"
       },
       ...journal
     ]);
   }
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
-      <SectionCard title="Trade Plan Builder">
+    <div className="space-y-4">
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <p className="text-xs font-semibold tracking-[0.18em] text-emerald-700">交易計畫產生器</p>
+        <h1 className="mt-2 text-2xl font-semibold text-slate-950">交易計畫產生器</h1>
+        <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">先算清楚最多虧多少，再決定是否進一步研究。此頁只建立研究計畫，不做自動下單。</p>
+      </section>
+      <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+      <SectionCard title="計畫輸入">
         <div className="grid gap-3 md:grid-cols-2">
-          <select className="rounded border border-border bg-[#0b1118] p-2" value={form.symbol} onChange={(event) => setForm({ ...form, symbol: event.target.value })}>
-            {mockStocks.map((item) => <option key={item.symbol} value={item.symbol}>{item.symbol} {item.name}</option>)}
+          <label className="text-xs text-slate-500">股票代號
+          <select className={inputClass} value={form.symbol} onChange={(event) => setForm({ ...form, symbol: event.target.value })}>
+            {mockStocks.map((item) => <option key={item.symbol} value={item.symbol}>{item.symbol} / {item.name}</option>)}
           </select>
-          <select className="rounded border border-border bg-[#0b1118] p-2" value={form.strategy} onChange={(event) => setForm({ ...form, strategy: event.target.value as StrategyName })}>
-            {strategies.map((item) => <option key={item}>{item}</option>)}
+          </label>
+          <label className="text-xs text-slate-500">策略
+          <select className={inputClass} value={form.strategy} onChange={(event) => setForm({ ...form, strategy: event.target.value as StrategyName })}>
+            {strategies.map((item) => <option key={item} value={item}>{formatStrategy(item)}</option>)}
           </select>
-          <select className="rounded border border-border bg-[#0b1118] p-2 md:col-span-2" value={form.relatedEventId} onChange={(event) => setForm({ ...form, relatedEventId: event.target.value })}>
-            {mockEvents.map((event) => <option key={event.id} value={event.id}>{event.symbol} {event.eventDate} {event.eventTitle}</option>)}
+          </label>
+          <label className="text-xs text-slate-500 md:col-span-2">關聯事件
+          <select className={inputClass} value={form.relatedEventId} onChange={(event) => setForm({ ...form, relatedEventId: event.target.value })}>
+            {mockEvents.map((event) => <option key={event.id} value={event.id}>{event.symbol} / {event.name} {event.eventDate} {event.eventTitle}</option>)}
           </select>
+          </label>
           {(["capital", "riskPerTradePct", "maxPositionPct", "entryPrice", "stopLoss", "takeProfit1", "takeProfit2"] as const).map((key) => (
-            <label key={key} className="text-xs text-muted">
+            <label key={key} className="text-xs text-slate-500">
               {numberLabels[key]}
-              <input className="mt-1 w-full rounded border border-border bg-[#0b1118] p-2 text-text" type="number" value={form[key]} onChange={(event) => setForm({ ...form, [key]: Number(event.target.value) })} />
+              <input className={inputClass} type="number" value={form[key]} onChange={(event) => setForm({ ...form, [key]: Number(event.target.value) })} />
             </label>
           ))}
-          <textarea className="rounded border border-border bg-[#0b1118] p-2 md:col-span-2" value={form.eventInvalidationRule} onChange={(event) => setForm({ ...form, eventInvalidationRule: event.target.value })} />
-          <textarea className="rounded border border-border bg-[#0b1118] p-2 md:col-span-2" value={form.timeStopRule} onChange={(event) => setForm({ ...form, timeStopRule: event.target.value })} />
+          <label className="text-xs text-slate-500 md:col-span-2">事件失效條件
+            <textarea className={inputClass} value={form.eventInvalidationRule} onChange={(event) => setForm({ ...form, eventInvalidationRule: event.target.value })} />
+          </label>
+          <label className="text-xs text-slate-500 md:col-span-2">時間停損規則
+            <textarea className={inputClass} value={form.timeStopRule} onChange={(event) => setForm({ ...form, timeStopRule: event.target.value })} />
+          </label>
         </div>
         {error ? <div className="mt-3"><ErrorState message={error} /></div> : null}
         <div className="mt-3 flex gap-2">
-          <button className="rounded bg-accent px-3 py-2 font-semibold text-black" onClick={submit}>Generate & Save</button>
-          <button className="rounded border border-border px-3 py-2 text-muted" onClick={addJournal}>Add Journal</button>
+          <button className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white" onClick={submit}>產生並儲存交易計畫</button>
+          <button className="rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700" onClick={addJournal}>加入交易日誌</button>
         </div>
       </SectionCard>
-      <SectionCard title="Markdown Export">
-        <textarea className="min-h-96 w-full rounded border border-border bg-[#0b1118] p-3 font-mono text-xs" value={markdown} readOnly />
+      <SectionCard title="Markdown 匯出">
+        <textarea className="min-h-96 w-full rounded-md border border-slate-200 bg-white p-3 font-mono text-xs text-slate-800" value={markdown} readOnly />
       </SectionCard>
-      <SectionCard title="Adaptive Position Sizing">
+      <SectionCard title="自適應部位試算">
         {adaptive ? (
           <div className="space-y-3">
             <MiniMetricGrid items={[
-              { label: "Adaptive Shares", value: adaptive.suggestedShares },
-              { label: "Adaptive Position", value: `${adaptive.suggestedPositionPct}%` },
-              { label: "Risk Adjusted %", value: `${adaptive.riskAdjustedPositionPct}%` },
-              { label: "Confidence Size", value: `${adaptive.confidenceAdjustedSize}%` }
+              { label: "建議股數", value: formatSharesLots(adaptive.suggestedShares) },
+              { label: "建議部位", value: `${adaptive.suggestedPositionPct}%` },
+              { label: "風險調整後", value: `${adaptive.riskAdjustedPositionPct}%` },
+              { label: "可信度調整", value: `${adaptive.confidenceAdjustedSize}%` }
             ]} />
             <WarningList warnings={adaptive.warnings} />
           </div>
         ) : (
-          <p className="text-sm text-muted">Generate a plan to calculate adaptive sizing.</p>
+          <p className="text-sm text-slate-500">產生交易計畫後，這裡會顯示自適應部位大小。</p>
         )}
       </SectionCard>
-      <SectionCard title="Saved Plans">
+      <SectionCard title="已儲存交易計畫">
         <div className="space-y-3">{plans.map((plan) => <TradePlanCard key={plan.id} plan={plan} />)}</div>
       </SectionCard>
+      </div>
     </div>
   );
 }
