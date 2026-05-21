@@ -1,27 +1,34 @@
 # Deployment Status
 
-Current status: project files are prepared for GitHub + Vercel, but this machine cannot complete the live link/deploy step because `git`, `npm`, `gh`, `winget`, and `vercel` are not available on PATH.
+Current status: deployed to GitHub and Vercel production.
+
+Production URL:
+
+- `https://files-mentioned-by-the-user-quantev.vercel.app`
+
+Deployment URL:
+
+- `https://files-mentioned-by-the-user-quanteventalphalabtaiwan-1jqlfovfb.vercel.app`
+
+GitHub repository:
+
+- `https://github.com/bobochun/quant-event-alpha-lab-taiwan-app`
 
 GitHub connector status:
 
 - Authenticated GitHub login detected: `bobochun`
-- GitHub repository detected: `bobochun/quant-event-alpha-lab-taiwan-app`
-- Repository URL: `https://github.com/bobochun/quant-event-alpha-lab-taiwan-app`
-- Repository permissions through the connector include admin and push.
-- The current Codex GitHub connector can write individual files, but this session does not expose a bulk folder push equivalent to `git push`.
+- GitHub repository detected and pushed: `bobochun/quant-event-alpha-lab-taiwan-app`
+- Latest pushed branch: `main`
+- Latest local commit after deployment cleanup: `419d03f`
 
-Browser deployment attempt:
+Vercel deployment status:
 
-- Opening `https://github.com/new` redirected to GitHub login and could not be completed from this embedded environment.
-- Opening `https://vercel.com/new` also requires account login/import authorization.
-- No live GitHub repository or Vercel project was created from this environment.
-
-Current authorization/import links:
-
-- GitHub repository: `https://github.com/bobochun/quant-event-alpha-lab-taiwan-app`
-- Vercel new project import: `https://vercel.com/new`
-- Vercel GitHub integration authorization: `https://vercel.com/integrations/github`
-- Suggested Vercel import target after the repo contains the app: `bobochun/quant-event-alpha-lab-taiwan-app`
+- Vercel login: `bobochun`
+- Vercel project: `bobochuns-projects/files-mentioned-by-the-user-quanteventalphalabtaiwan`
+- Deployment id: `dpl_xA4Fxxfs8Q8j1D7RCt9bLWs324DH`
+- Vercel build status: Ready
+- GitHub repository connected in Vercel.
+- SSO deployment protection was disabled so the `.vercel.app` URLs are publicly reachable.
 
 ## What Is Ready
 
@@ -38,47 +45,48 @@ Current authorization/import links:
 - Latest optimized ZIP exists locally at:
   - `C:\Users\peace\Documents\Codex\2026-03-17\files-mentioned-by-the-user-quanteventalphalabtaiwan\QuantEventAlphaLabTaiwan_MVP_optimized.zip`
 
-## Required Manual Link Steps
+## Verification Results
 
-1. Install Node.js 20 LTS or newer.
-2. Install Git for Windows.
-3. Open a new terminal.
-4. Run:
+Local:
+
+- `npm install`: passed
+- `npm run lint`: passed
+- `npm run typecheck`: passed
+- `npm run build`: passed with Next.js 16.2.6
+- Local production server: `http://localhost:3000` returns HTTP 200
+
+Vercel:
+
+- Production build: passed
+- Production deployment URL returns HTTP 200
+- Production alias returns HTTP 200
+
+Security/audit note:
+
+- Next.js was upgraded from 14.2.16 to 16.2.6.
+- `npm audit` still reports a moderate advisory through Next's internal PostCSS dependency range.
+- `npm audit fix --force` currently suggests a breaking downgrade path, so it was not applied.
+
+## Future Update Steps
+
+After editing locally:
 
 ```bash
 npm install
+npm run lint
 npm run typecheck
 npm run build
-git init
 git add .
-git commit -m "Build Quant Event Alpha Lab Super MVP"
-git branch -M quant-event-alpha-lab-super-mvp
-git remote add origin <YOUR_GITHUB_REPO_URL>
-git push -u origin quant-event-alpha-lab-super-mvp
+git commit -m "Update Quant Event Alpha Lab"
+git push
 ```
 
-5. In Vercel Dashboard, import the GitHub repository.
-6. Framework: Next.js.
-7. Build command: `npm run build`.
-8. Output directory: `.next`.
-9. Environment variables:
+Vercel is connected to GitHub, so pushes to `main` should deploy automatically.
+
+Environment variables used for deployment:
 
 ```bash
 NEXT_PUBLIC_APP_NAME=Quant Event Alpha Lab Taiwan
 NEXT_PUBLIC_DATA_MODE=Demo
 NEXT_PUBLIC_ENABLE_DEMO_DATA=true
-```
-
-After Vercel imports the GitHub repository, future pushes to the production branch will auto deploy.
-
-## CLI Deployment Alternative
-
-If Vercel CLI is available and logged in:
-
-```bash
-npm i -g vercel
-vercel login
-vercel link
-vercel deploy
-vercel deploy --prod
 ```
