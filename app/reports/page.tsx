@@ -8,6 +8,7 @@ import { exportAllData, loadEvents, loadJournal, loadPortfolio, loadTradePlans }
 import type { Event, JournalEntry, Portfolio, TradePlan } from "../lib/types";
 import { SectionCard } from "../components/ui";
 import { DEMO_SOURCE_NOTE } from "../lib/utils";
+import { loadImportedDataset, mergeDemoImportedManualEvents, mergeStocksWithImported } from "../lib/importers";
 
 const reportLabels: Record<string, string> = {
   weekly: "每週事件 Alpha 報告",
@@ -26,21 +27,25 @@ export default function ReportsPage() {
   const [portfolio, setPortfolio] = useState<Portfolio>(mockPortfolio);
   const [journal, setJournal] = useState<JournalEntry[]>(mockJournal);
   useEffect(() => {
-    setEvents(loadEvents());
+    const imported = loadImportedDataset();
+    const manual = loadEvents().filter((event) => event.dataSource === "Manual");
+    setEvents(mergeDemoImportedManualEvents(mockEvents, imported.events, manual));
     setPlans(loadTradePlans());
     setPortfolio(loadPortfolio());
     setJournal(loadJournal());
   }, []);
   const content = useMemo(() => {
-    const themeHeat = calculateThemeHeat(mockThemes, events, mockStocks);
-    const alphaRows = buildAlphaEngineResults(events, mockStocks, mockThemes);
+    const imported = loadImportedDataset();
+    const stocks = mergeStocksWithImported(mockStocks, imported.stocks);
+    const themeHeat = calculateThemeHeat(mockThemes, events, stocks);
+    const alphaRows = buildAlphaEngineResults(events, stocks, mockThemes);
     if (type === "eventsCsv") return exportEventsCsv(events);
     if (type === "plansMd") return exportTradePlansMarkdown(plans);
     if (type === "portfolioCsv") return exportPortfolioCsv(portfolio);
     if (type === "journalCsv") return exportJournalCsv(journal);
     if (type === "themeJson") return JSON.stringify(themeHeat, null, 2);
     if (type === "backup") return exportFullBackupJson(typeof window === "undefined" ? { version: "1", exportedAt: new Date().toISOString(), events, tradePlans: plans, portfolio, journal, settings: mockSettings } : exportAllData());
-    return exportWeeklyReportMarkdown({ themeHeat, events: events.slice(0, 12), plans, portfolio, alphaRows, dataQualityNote: DEMO_SOURCE_NOTE });
+    return exportWeeklyReportMarkdown({ themeHeat, events, plans, portfolio, alphaRows, dataQualityNote: imported.summaries.length ? "包含使用者匯入 CSV 資料，請自行確認來源與正確性。" : DEMO_SOURCE_NOTE });
   }, [events, journal, plans, portfolio, type]);
   return (
     <div className="space-y-4">

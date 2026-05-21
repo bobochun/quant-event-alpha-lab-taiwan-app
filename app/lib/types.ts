@@ -312,6 +312,8 @@ export interface AppSettings extends DataTagged {
   baseCapital: number;
   defaultRiskPerTradePct: number;
   timezone: "Asia/Taipei";
+  dashboardWidgets?: string[];
+  onboardingCompleted?: boolean;
 }
 
 export interface BackupPayload {

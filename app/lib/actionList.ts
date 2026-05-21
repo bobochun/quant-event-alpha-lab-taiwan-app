@@ -1,3 +1,4 @@
+import type { ActionState } from "./actionState";
 import type { AlphaEngineResult, PortfolioExposureResult } from "./types";
 import { formatNextAction, formatSymbolName, localizeTheme } from "./utils";
 
@@ -27,6 +28,12 @@ const priorityRank: Record<TodayAction["priority"], number> = {
   檢討: 4
 };
 
+function isIgnored(eventId: string, actionState?: ActionState): boolean {
+  const ignoredUntil = actionState?.ignoredUntil[eventId];
+  if (!ignoredUntil) return false;
+  return ignoredUntil >= new Date().toISOString().slice(0, 10);
+}
+
 export function generateTodayActionList(params: {
   rows: AlphaEngineResult[];
   plannedEventIds: string[];
@@ -34,42 +41,57 @@ export function generateTodayActionList(params: {
   hasJournalToday?: boolean;
   ignoredIds?: string[];
   reviewedIds?: string[];
+  actionState?: ActionState;
 }): TodayAction[] {
-  const planned = new Set(params.plannedEventIds);
+  const planned = new Set([...params.plannedEventIds, ...(params.actionState?.createdTradePlanEventIds ?? [])]);
   const ignored = new Set(params.ignoredIds ?? []);
   const reviewed = new Set(params.reviewedIds ?? []);
   const actions: TodayAction[] = [];
 
   params.rows.forEach((row) => {
-    if (ignored.has(row.event.id) || reviewed.has(row.event.id)) return;
+    if (ignored.has(row.event.id) || reviewed.has(row.event.id) || isIgnored(row.event.id, params.actionState)) return;
     const symbolName = formatSymbolName(row.event.symbol, row.event.name);
-    if (row.alpha.combinedAlphaScore >= 65 && !planned.has(row.event.id)) {
+    const pricedInHigh = row.pricedInRisk === "high" || row.pricedInRisk === "critical";
+    const overheatHigh = row.overheatRisk === "high" || row.overheatRisk === "critical" || params.actionState?.flaggedOverheated.includes(row.event.id);
+
+    if (row.alpha.combinedAlphaScore >= 65 && !pricedInHigh && !planned.has(row.event.id)) {
       actions.push({
         id: `highCatalystNoPlan:${row.event.id}`,
         type: "highCatalystNoPlan",
         priority: "高優先",
-        title: `${symbolName}：高催化但尚未建立交易計畫`,
-        nextStep: "建立交易計畫，先確認停損、部位大小與事件失效條件。",
+        title: `${symbolName}：高催化且尚未建立交易計畫`,
+        nextStep: "建立交易計畫，先計算停損、部位大小與風險報酬比。",
         href: `/trade-plan?eventId=${row.event.id}&symbol=${row.event.symbol}`
       });
     }
-    if (row.daysToEvent <= 3 && (row.overheatRisk === "high" || row.overheatRisk === "critical")) {
+
+    if (row.catalyst.totalCatalystScore >= 65 && pricedInHigh) {
+      actions.push({
+        id: `nearEventOverheated:${row.event.id}`,
+        type: "nearEventOverheated",
+        priority: "風險",
+        title: `${symbolName}：催化強但已反應風險偏高`,
+        nextStep: "可建立觀察計畫，但不追價，等待回測或新的確認訊號。",
+        href: "/event-radar"
+      });
+    } else if (row.daysToEvent <= 3 && overheatHigh) {
       actions.push({
         id: `nearEventOverheated:${row.event.id}`,
         type: "nearEventOverheated",
         priority: "風險",
         title: `${symbolName}：接近事件日但已過熱`,
-        nextStep: "避免追高，等待回測或新的確認訊號。",
+        nextStep: "避免追高，等待回測或量價降溫。",
         href: "/event-radar"
       });
     }
+
     if (row.event.confidence < 50) {
       actions.push({
         id: `lowConfidenceData:${row.event.id}`,
         type: "lowConfidenceData",
         priority: "資料",
         title: `${symbolName}：事件資料可信度不足`,
-        nextStep: "補齊來源與事件假設，再決定是否列入研究。",
+        nextStep: "補上來源或匯入更完整資料，再決定是否列入研究。",
         href: "/data-center"
       });
     }
@@ -81,19 +103,19 @@ export function generateTodayActionList(params: {
         id: `portfolioConcentration:${theme}`,
         type: "portfolioConcentration",
         priority: "風險",
-        title: `${localizeTheme(theme)} 題材曝險 ${value}%，偏高`,
+        title: `${localizeTheme(theme)} 題材曝險 ${value}% 偏高`,
         nextStep: "避免新增同題材部位，優先檢查既有部位停損。",
         href: "/portfolio"
       });
     }
   });
 
-  params.exposure.alerts.filter((alert) => alert.message.includes("below stop") || alert.message.includes("跌破停損")).forEach((alert) => {
+  params.exposure.alerts.filter((alert) => alert.message.includes("跌破停損") || alert.message.includes("已跌破")).forEach((alert) => {
     actions.push({
       id: `stopLossBroken:${alert.symbol ?? alert.id}`,
       type: "stopLossBroken",
       priority: "風險",
-      title: `${alert.symbol ?? "投組"}：可能已跌破停損`,
+      title: `${alert.symbol ?? "部位"}：可能已跌破停損`,
       nextStep: formatNextAction("CheckRisk"),
       href: "/risk-center"
     });
@@ -104,8 +126,8 @@ export function generateTodayActionList(params: {
       id: "missingJournal:today",
       type: "missingJournal",
       priority: "紀律",
-      title: "今日尚未填寫交易日誌",
-      nextStep: "新增研究紀錄，標記是否追新聞、是否遵守計畫。",
+      title: "尚未填寫今日交易日誌",
+      nextStep: "記錄今天是否追新聞、是否遵守計畫、是否買在已反應後。",
       href: "/journal"
     });
   }
@@ -114,8 +136,8 @@ export function generateTodayActionList(params: {
     id: "weeklyReviewNeeded:strategy",
     type: "weeklyReviewNeeded",
     priority: "檢討",
-    title: "本週需檢討低基期事件催化與事件後回測策略",
-    nextStep: "查看交易日誌與報告匯出，確認策略是否有效。",
+    title: "本週應檢查事件策略與交易紀律",
+    nextStep: "匯出週報並檢查高催化、過熱暫避、尚未建立計畫清單。",
     href: "/reports"
   });
 

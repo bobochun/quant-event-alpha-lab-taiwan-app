@@ -11,11 +11,11 @@ const keys = {
   settings: "qealt.settings"
 };
 
-function canUseStorage(): boolean {
+export function canUseStorage(): boolean {
   return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
 }
 
-function loadJson<T>(key: string, fallback: T): T {
+export function loadJson<T>(key: string, fallback: T): T {
   if (!canUseStorage()) return fallback;
   const raw = window.localStorage.getItem(key);
   if (!raw) return fallback;
@@ -26,7 +26,7 @@ function loadJson<T>(key: string, fallback: T): T {
   }
 }
 
-function saveJson<T>(key: string, value: T): void {
+export function saveJson<T>(key: string, value: T): void {
   if (!canUseStorage()) return;
   window.localStorage.setItem(key, JSON.stringify(value));
 }

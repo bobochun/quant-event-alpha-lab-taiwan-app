@@ -34,42 +34,67 @@ export function exportWeeklyReportMarkdown(params: {
   dataQualityNote: string;
   alphaRows?: AlphaEngineResult[];
 }): string {
-  const topThemes = params.themeHeat.slice(0, 5).map((theme) => `- ${localizeTheme(theme.theme)}：${Math.round(theme.heatScore)} 分（${theme.explanation}）`).join("\n");
-  const watchlist = params.events.slice(0, 10).map((event) => `- ${formatDateTW(event.eventDate)} ${event.symbol} / ${event.name}：${event.eventTitle}（${formatDataSource(event.dataSource)}）`).join("\n");
-  const highScore = (params.alphaRows ?? []).filter((row) => row.alpha.combinedAlphaScore >= 65).slice(0, 8).map((row) => `- ${row.event.symbol} / ${row.event.name}：Alpha ${Math.round(row.alpha.combinedAlphaScore)}，催化 ${Math.round(row.catalyst.totalCatalystScore)}，下一步：${formatNextAction(row.alpha.nextAction)}`).join("\n");
-  const chaseRisk = (params.alphaRows ?? []).filter((row) => row.pricedInRisk === "high" || row.pricedInRisk === "critical" || row.overheatRisk === "high" || row.overheatRisk === "critical").slice(0, 8).map((row) => `- ${row.event.symbol} / ${row.event.name}：已反應風險 ${formatRiskLevel(row.pricedInRisk)}，過熱風險 ${formatRiskLevel(row.overheatRisk)}`).join("\n");
-  const unplanned = params.events.filter((event) => !params.plans.some((plan) => plan.relatedEventId === event.id)).slice(0, 8).map((event) => `- ${event.symbol} ${event.name} ${event.eventTitle}`).join("\n");
-  const exposure = params.portfolio.positions.map((position) => `- ${position.symbol} / ${position.name}：${position.tags.map(localizeTheme).join(" / ")}，策略 ${formatStrategy(position.strategy)}`).join("\n");
+  const alphaRows = params.alphaRows ?? [];
+  const generatedAt = new Date().toISOString();
+  const highCatalyst = alphaRows.filter((row) => row.daysToEvent <= 7 && row.catalyst.totalCatalystScore >= 70).slice(0, 10);
+  const unpriced = alphaRows.filter((row) => row.alpha.combinedAlphaScore >= 65 && (row.pricedInRisk === "low" || row.pricedInRisk === "medium")).slice(0, 10);
+  const confirm = alphaRows.filter((row) => row.catalyst.totalCatalystScore >= 65 && row.pricedInRisk === "high").slice(0, 10);
+  const overheated = alphaRows.filter((row) => row.pricedInRisk === "critical" || row.overheatRisk === "high" || row.overheatRisk === "critical").slice(0, 10);
+  const plannedIds = new Set(params.plans.map((plan) => plan.relatedEventId).filter(Boolean));
+  const unplanned = params.events.filter((event) => !plannedIds.has(event.id)).slice(0, 10);
+  const dataSources = Array.from(new Set(params.events.map((event) => formatDataSource(event.dataSource)))).join(" / ") || "無資料";
+
   return `# 每週事件 Alpha 報告
+
+generatedAt: ${generatedAt}
+dataSource summary: ${dataSources}
 
 本報告僅供個人研究、策略模擬、事件追蹤與風險控管，不構成投資建議。
 
-## 本週最強題材
-${topThemes || "- 無資料"}
+## 本週摘要
+- 未來 7 天高催化事件：${highCatalyst.length}
+- 尚未反應候選：${unpriced.length}
+- 待確認候選：${confirm.length}
+- 過熱暫避名單：${overheated.length}
+- 已建立交易計畫：${params.plans.length}
 
 ## 未來 7 天高催化事件
-${watchlist || "- 無資料"}
+${formatRows(highCatalyst)}
 
-## 高分事件標的
-${highScore || "- 目前沒有高分事件列"}
+## 尚未反應候選
+${formatRows(unpriced)}
 
-## 已過熱 / 避免追高標的
-${chaseRisk || "- 目前沒有明顯過熱標的"}
+## 待確認候選
+${formatRows(confirm, "催化強但已反應風險偏高，可建立觀察計畫但不追價。")}
 
-## 尚未建立交易計畫標的
-${unplanned || "- 無"}
+## 過熱暫避名單
+${formatRows(overheated, "避免追高，等待回測或新的確認訊號。")}
 
-## 投組事件曝險
-${exposure || "- 目前沒有持股"}
+## 題材熱度排行
+${params.themeHeat.slice(0, 8).map((theme, index) => `${index + 1}. ${localizeTheme(theme.theme)}：${Math.round(theme.heatScore)} 分，${theme.explanation}`).join("\n") || "- 無資料"}
+
+## 已建立交易計畫
+${params.plans.map((plan) => `- ${plan.symbol} / ${plan.name}：${formatStrategy(plan.strategy)}，部位 ${plan.positionPct}%，最大風險 ${Math.round(plan.maxRiskAmount).toLocaleString()}`).join("\n") || "- 無"}
+
+## 尚未建立交易計畫
+${unplanned.map((event) => `- ${event.symbol} / ${event.name}：${event.eventTitle}`).join("\n") || "- 無"}
+
+## 投組曝險提醒
+${params.portfolio.positions.map((position) => `- ${position.symbol} / ${position.name}：${position.tags.map(localizeTheme).join(" / ")}，策略 ${formatStrategy(position.strategy)}`).join("\n") || "- 目前沒有持股"}
 
 ## 資料品質提醒
 ${params.dataQualityNote}
 
-## 下週觀察重點
-- 建立交易計畫前，先檢查過熱與已反應風險。
-- 優先處理高催化但尚未建立交易計畫的標的。
-- 用交易日誌檢查是否追新聞、是否遵守計畫。
+## 下週待辦事項
+- 先處理高催化但尚未建立交易計畫的標的。
+- 對待確認候選只建立觀察計畫，不追價。
+- 檢查過熱暫避名單是否出現健康回測。
+- 匯出 JSON 備份，避免 localStorage 資料遺失。
 `;
+}
+
+function formatRows(rows: AlphaEngineResult[], note?: string): string {
+  return rows.map((row) => `- ${formatDateTW(row.event.eventDate)} ${row.event.symbol} / ${row.event.name}：催化 ${Math.round(row.catalyst.totalCatalystScore)}，Alpha ${Math.round(row.alpha.combinedAlphaScore)}，已反應 ${formatRiskLevel(row.pricedInRisk)}，下一步：${formatNextAction(row.alpha.nextAction)}${note ? `。${note}` : ""}`).join("\n") || "- 無";
 }
 
 export function exportFullBackupJson(payload: BackupPayload): string {

@@ -14,3 +14,9 @@
 12. 打開 `/settings`，測試匯出 JSON、匯入 JSON、清除示範資料、重置本機資料。
 13. 打開 `/data-center`，確認所有示範資料都明確標示不是即時市場資料。
 14. 打開 Coming Soon 頁，確認有中文用途、未來功能與替代連結。
+15. 打開 `/data-center`，下載 `events.csv` 模板，貼回 CSV 匯入區並確認可匯入。
+16. 修改 `events.csv` 的 eventType 為錯誤值，確認匯入錯誤以中文顯示。
+17. 在 `/event-radar` 點「展開詳情」與「研究詳情」，確認分數拆解不會撐爆表格。
+18. 從 `/event-radar` 點「建立交易計畫」，確認 `/trade-plan` 自動帶入股票、事件、日期與分數摘要。
+19. 在 `/settings` 勾選 / 取消首頁 Widget，回首頁確認顯示狀態改變。
+20. 參照 `docs/PR_REVIEW_CHECKLIST.md` 檢查 PR preview。

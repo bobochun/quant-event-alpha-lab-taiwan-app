@@ -11,6 +11,8 @@ Quant Event Alpha Lab Taiwan 是個人用台股事件驅動研究終端，用來
 - Alpha Engine、事件評分、已反應 / 過熱風險、Adaptive Position Sizing
 - MVP 使用瀏覽器 `localStorage` 儲存資料
 - JSON 匯出 / 匯入，方便換電腦移動使用者資料
+- CSV 模板下載與手動資料匯入（events.csv 等）
+- Playwright smoke / screenshot 測試
 - 示範資料明確標示：`示範資料，不是真實即時市場資料。`
 
 ## 本機啟動
@@ -38,6 +40,7 @@ http://localhost:3000
 npm run typecheck
 npm run lint
 npm run build
+npm run test:e2e
 ```
 
 ## 部署到 Vercel
@@ -104,6 +107,12 @@ MVP 使用 `localStorage` 儲存：
 
 不接券商 API，不做自動下單。
 
+## CSV 匯入
+
+到 `/data-center` 可以下載 UTF-8 CSV 模板並匯入。已支援模板包含事件資料、股價快照、法人籌碼、月營收、財報、除權息、注意 / 處置股、題材新聞 metadata、ETF 成分調整、大戶持股變化。
+
+匯入資料會標示為 `Imported`，來源說明為「使用者匯入 CSV 資料，請自行確認來源與正確性。」
+
 ## 主要文件
 
 - `DEPLOYMENT.md`
@@ -112,5 +121,6 @@ MVP 使用 `localStorage` 儲存：
 - `docs/PRODUCT_SPEC.md`
 - `docs/DATA_SOURCES.md`
 - `docs/MANUAL_TESTING.md`
+- `docs/PR_REVIEW_CHECKLIST.md`
 - `docs/API_ROUTES.md`
 - `docs/LOCAL_DATA_TEMPLATES.md`

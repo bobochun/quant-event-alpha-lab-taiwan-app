@@ -1,6 +1,7 @@
+"use client";
+
 import type { AlphaEngineResult, DataSource, EventType, RiskAlert, RiskLevel, ThemeHeatResult, TradePlan } from "../lib/types";
 import type { TodayAction } from "../lib/actionList";
-import { explainAlphaRow } from "../lib/explanations";
 import {
   EVENT_TYPE_LABELS,
   RISK_CATEGORY_LABELS,
@@ -14,7 +15,7 @@ import {
   formatSymbolName,
   localizeTheme
 } from "../lib/utils";
-import { Fragment, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
 export function SectionCard({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) {
   return (
@@ -28,7 +29,7 @@ export function SectionCard({ title, children, action }: { title: string; childr
   );
 }
 
-export function MetricCard({ label, value, helper }: { label: string; value: string | number; helper?: string }) {
+export function MetricCard({ label, value, helper }: { label: string; value: ReactNode; helper?: string }) {
   return (
     <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
       <div className="text-[11px] font-medium text-slate-500">{label}</div>
@@ -39,37 +40,33 @@ export function MetricCard({ label, value, helper }: { label: string; value: str
 }
 
 export function MiniMetricGrid({ items }: { items: Array<{ label: string; value: ReactNode; helper?: string }> }) {
-  return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      {items.map((item) => <MetricCard key={item.label} label={item.label} value={item.value as string | number} helper={item.helper} />)}
-    </div>
-  );
+  return <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{items.map((item) => <MetricCard key={item.label} {...item} />)}</div>;
 }
 
 export function ScoreBadge({ score }: { score: number }) {
   const rounded = Math.round(score);
   const tone = rounded >= 80 ? "border-emerald-300 bg-emerald-50 text-emerald-800" : rounded >= 65 ? "border-cyan-300 bg-cyan-50 text-cyan-800" : rounded >= 50 ? "border-amber-300 bg-amber-50 text-amber-800" : "border-rose-300 bg-rose-50 text-rose-800";
-  return <span className={`inline-flex min-w-12 justify-center rounded-md border px-2 py-1 text-xs font-semibold tabular-nums ${tone}`}>{rounded}</span>;
+  return <span className={`inline-flex min-w-12 justify-center whitespace-nowrap rounded-md border px-2 py-1 text-xs font-semibold tabular-nums ${tone}`}>{rounded}</span>;
 }
 
 export function RiskBadge({ level }: { level: RiskLevel }) {
   const tone = level === "critical" ? "border-rose-400 bg-rose-100 text-rose-900" : level === "high" ? "border-orange-300 bg-orange-50 text-orange-800" : level === "medium" ? "border-amber-300 bg-amber-50 text-amber-800" : "border-emerald-300 bg-emerald-50 text-emerald-800";
-  return <span className={`inline-flex rounded-md border px-2 py-1 text-xs font-semibold ${tone}`}>{formatRiskLevel(level)}</span>;
+  return <span className={`inline-flex whitespace-nowrap rounded-md border px-2 py-1 text-xs font-semibold ${tone}`}>{formatRiskLevel(level)}</span>;
 }
 
 export function DataSourceBadge({ source }: { source: DataSource }) {
-  const tone = source === "Demo" || source === "Estimated" ? "border-amber-300 bg-amber-50 text-amber-800" : source === "Missing" ? "border-rose-300 bg-rose-50 text-rose-800" : "border-slate-300 bg-slate-50 text-slate-700";
-  return <span className={`inline-flex rounded-md border px-2 py-1 text-xs font-medium ${tone}`}>{formatDataSource(source)}</span>;
+  const tone = source === "Demo" || source === "Estimated" ? "border-amber-300 bg-amber-50 text-amber-800" : source === "Missing" ? "border-rose-300 bg-rose-50 text-rose-800" : source === "Imported" ? "border-cyan-300 bg-cyan-50 text-cyan-800" : "border-slate-300 bg-slate-50 text-slate-700";
+  return <span className={`inline-flex whitespace-nowrap rounded-md border px-2 py-1 text-xs font-medium ${tone}`}>{formatDataSource(source)}</span>;
 }
 
 export function EventTypeBadge({ type }: { type: EventType }) {
-  return <span className="inline-flex rounded-md border border-cyan-200 bg-cyan-50 px-2 py-1 text-xs font-medium text-cyan-800">{EVENT_TYPE_LABELS[type] ?? type}</span>;
+  return <span className="inline-flex whitespace-nowrap rounded-md border border-cyan-200 bg-cyan-50 px-2 py-1 text-xs font-medium text-cyan-800">{EVENT_TYPE_LABELS[type] ?? type}</span>;
 }
 
 export const CatalystScoreBadge = ScoreBadge;
 
 export function ThemeBadge({ label }: { label: string }) {
-  return <span className="inline-flex rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700">{localizeTheme(label)}</span>;
+  return <span className="inline-flex whitespace-nowrap rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700">{localizeTheme(label)}</span>;
 }
 
 export function EmptyState({ message }: { message: string }) {
@@ -92,38 +89,31 @@ export function WarningList({ warnings }: { warnings: string[] }) {
 export function CatalystTable({ rows, limit, actions }: { rows: AlphaEngineResult[]; limit?: number; actions?: (row: AlphaEngineResult) => ReactNode }) {
   const visible = typeof limit === "number" ? rows.slice(0, limit) : rows;
   return (
-    <div className="table-scroll overflow-x-auto rounded-md border border-slate-200 bg-white">
+    <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
       <table className="w-full min-w-[1120px] border-collapse text-left text-sm">
-        <thead className="bg-slate-100 text-[11px] text-slate-500">
+        <thead className="sticky top-0 bg-slate-100 text-[11px] text-slate-500">
           <tr className="border-b border-slate-200">
-            {["距事件日", "事件日期", "代號", "名稱", "事件類型", "事件標題", "催化分數", "綜合 Alpha", "已反應風險", "風險等級", "下一步", "資料來源"].map((head) => <th key={head} className="px-3 py-2.5 font-medium">{head}</th>)}
+            {["距事件日", "事件日期", "代號", "名稱", "事件類型", "事件標題", "催化分數", "綜合 Alpha", "已反應風險", "風險等級", "下一步", "資料來源"].map((head) => <th key={head} className="whitespace-nowrap px-3 py-2.5 font-medium">{head}</th>)}
             {actions ? <th className="px-3 py-2.5 font-medium">操作</th> : null}
           </tr>
         </thead>
         <tbody>
           {visible.map((row) => (
-            <Fragment key={row.event.id}>
-              <tr className="border-b border-slate-100 text-slate-700 hover:bg-cyan-50/60">
-                <td className="px-3 py-2.5 tabular-nums">{row.daysToEvent} 天</td>
-                <td className="px-3 py-2.5 tabular-nums">{formatDateTW(row.event.eventDate)}</td>
-                <td className="px-3 py-2.5 font-semibold text-slate-950">{row.event.symbol}</td>
-                <td className="px-3 py-2.5">{row.event.name}</td>
-                <td className="px-3 py-2.5"><EventTypeBadge type={row.event.eventType} /></td>
-                <td className="max-w-[340px] px-3 py-2.5 text-slate-700">{row.event.eventTitle}</td>
-                <td className="px-3 py-2.5"><ScoreBadge score={row.catalyst.totalCatalystScore} /></td>
-                <td className="px-3 py-2.5"><ScoreBadge score={row.alpha.combinedAlphaScore} /></td>
-                <td className="px-3 py-2.5"><RiskBadge level={row.pricedInRisk} /></td>
-                <td className="px-3 py-2.5"><RiskBadge level={row.overheatRisk} /></td>
-                <td className="px-3 py-2.5 text-slate-900">{formatNextAction(row.alpha.nextAction)}</td>
-                <td className="px-3 py-2.5"><DataSourceBadge source={row.event.dataSource} /></td>
-                {actions ? <td className="px-3 py-2.5">{actions(row)}</td> : null}
-              </tr>
-              <tr className="border-b border-slate-100 bg-slate-50/70">
-                <td colSpan={actions ? 13 : 12} className="px-3 py-2 text-xs leading-5 text-slate-600">
-                  <span className="font-semibold text-slate-800">分數拆解：</span>{explainAlphaRow(row)}
-                </td>
-              </tr>
-            </Fragment>
+            <tr key={row.event.id} className="border-b border-slate-100 text-slate-700 hover:bg-cyan-50/60">
+              <td className="whitespace-nowrap px-3 py-2.5 tabular-nums">{row.daysToEvent} 天</td>
+              <td className="whitespace-nowrap px-3 py-2.5 tabular-nums">{formatDateTW(row.event.eventDate)}</td>
+              <td className="px-3 py-2.5 font-semibold text-slate-950">{row.event.symbol}</td>
+              <td className="px-3 py-2.5">{row.event.name}</td>
+              <td className="px-3 py-2.5"><EventTypeBadge type={row.event.eventType} /></td>
+              <td className="max-w-[340px] truncate px-3 py-2.5 text-slate-700" title={row.event.eventTitle}>{row.event.eventTitle}</td>
+              <td className="px-3 py-2.5"><ScoreBadge score={row.catalyst.totalCatalystScore} /></td>
+              <td className="px-3 py-2.5"><ScoreBadge score={row.alpha.combinedAlphaScore} /></td>
+              <td className="px-3 py-2.5"><RiskBadge level={row.pricedInRisk} /></td>
+              <td className="px-3 py-2.5"><RiskBadge level={row.overheatRisk} /></td>
+              <td className="whitespace-nowrap px-3 py-2.5 text-slate-900">{formatNextAction(row.alpha.nextAction)}</td>
+              <td className="px-3 py-2.5"><DataSourceBadge source={row.event.dataSource} /></td>
+              {actions ? <td className="px-3 py-2.5">{actions(row)}</td> : null}
+            </tr>
           ))}
         </tbody>
       </table>
@@ -222,12 +212,30 @@ export function JsonBackupPanel({ value, onChange, onExport, onImport, onReset, 
   return (
     <div className="space-y-3">
       <textarea className="min-h-64 w-full rounded-md border border-slate-200 bg-white p-3 font-mono text-xs text-slate-800 outline-none focus:border-cyan-500" value={value} onChange={(event) => onChange(event.target.value)} placeholder="在這裡貼上 JSON 備份，或先按「匯出全部資料 JSON」。" />
-      <div className="flex flex-wrap gap-2">
-        <button className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white" onClick={onExport}>匯出全部資料 JSON</button>
-        <button className="rounded-md bg-cyan-600 px-3 py-2 text-sm font-semibold text-white" onClick={onImport}>匯入 JSON 備份</button>
-        <button className="rounded-md border border-amber-400 px-3 py-2 text-sm text-amber-800" onClick={onClearDemo}>清除示範資料</button>
-        <button className="rounded-md border border-rose-500 px-3 py-2 text-sm text-rose-700" onClick={onReset}>重置本機資料</button>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <BackupButton title="匯出全部資料 JSON" text="下載或複製完整 localStorage 備份。" onClick={onExport} tone="emerald" />
+        <BackupButton title="匯入 JSON 備份" text="把另一台電腦匯出的 JSON 貼上後匯入。" onClick={onImport} tone="cyan" />
+        <BackupButton title="清除示範資料" text="切換為手動資料模式。" onClick={onClearDemo} tone="amber" confirmText="確定清除示範資料？" />
+        <BackupButton title="重置本機資料" text="清除本機所有 MVP 資料。" onClick={onReset} tone="rose" confirmText="確定重置本機資料？此操作無法復原。" />
       </div>
     </div>
+  );
+}
+
+function BackupButton({ title, text, onClick, tone, confirmText }: { title: string; text: string; onClick: () => void; tone: "emerald" | "cyan" | "amber" | "rose"; confirmText?: string }) {
+  const toneClass = {
+    emerald: "border-emerald-200 bg-emerald-50 text-emerald-800",
+    cyan: "border-cyan-200 bg-cyan-50 text-cyan-800",
+    amber: "border-amber-200 bg-amber-50 text-amber-800",
+    rose: "border-rose-200 bg-rose-50 text-rose-800"
+  }[tone];
+  return (
+    <button className={`rounded-md border p-3 text-left ${toneClass}`} onClick={() => {
+      if (confirmText && !window.confirm(confirmText)) return;
+      onClick();
+    }}>
+      <span className="block text-sm font-semibold">{title}</span>
+      <span className="mt-1 block text-xs leading-5 opacity-80">{text}</span>
+    </button>
   );
 }
