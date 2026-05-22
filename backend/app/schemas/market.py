@@ -17,6 +17,8 @@ JobName = Literal[
     "source_digest_collect",
     "official_source_digest",
     "refresh_institutional_flow",
+    "ai_source_digest_analysis",
+    "ai_daily_factor_refresh",
 ]
 
 
