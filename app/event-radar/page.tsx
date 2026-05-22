@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { DataSourceBadge, EventTypeBadge, RiskBadge, ScoreBadge, SectionCard, ThemeBadge, WarningList } from "../components/ui";
 import { DataTable, type DataTableColumn } from "../components/ui/DataTable";
 import { flagEventOverheated, ignoreEventUntil, loadActionState, markEventReviewed, markJournalLinked, type ActionState } from "../lib/actionState";
+import { fetchBackendPriceSnapshots } from "../lib/backendMarketSnapshots";
 import { mergeEventsByPriority } from "../lib/dataSources/mergeSources";
 import { explainAlphaRow } from "../lib/explanations";
 import { loadImportedDataset } from "../lib/importers";
@@ -25,10 +26,11 @@ export default function EventRadarPage() {
   const [manualEvents, setManualEvents] = useState<Event[]>(mockEvents);
   const [actionState, setActionState] = useState<ActionState | null>(null);
   const [selected, setSelected] = useState<EventRow | null>(null);
+  const [backendPrice, setBackendPrice] = useState<PriceSnapshot[]>([]);
   const [officialPrice, setOfficialPrice] = useState<PriceSnapshot[]>([]);
   const [officialFlow, setOfficialFlow] = useState<InstitutionalFlowRecord[]>([]);
   const [officialWarnings, setOfficialWarnings] = useState<MarketWarningRecord[]>([]);
-  const [officialMessage, setOfficialMessage] = useState("官方資料尚未刷新，先使用匯入 / 示範 fallback。");
+  const [officialMessage, setOfficialMessage] = useState("後端行情 API 尚未載入；事件本身若無正式來源，仍會明確標示 Demo / Imported / Manual。");
   const [windowDays, setWindowDays] = useState(7);
   const [eventType, setEventType] = useState<EventType | "all">("all");
   const [theme, setTheme] = useState("all");
@@ -51,14 +53,15 @@ export default function EventRadarPage() {
       setOfficialPrice((priceBody.data?.records ?? []).filter((item: PriceSnapshot) => item.dataSource === "Official"));
       setOfficialFlow((flowBody.data?.records ?? []) as InstitutionalFlowRecord[]);
       setOfficialWarnings((warningBody.data?.records ?? []) as MarketWarningRecord[]);
-      setOfficialMessage("已嘗試載入官方資料；缺資料時仍使用匯入或示範 fallback。");
+      setOfficialMessage("已嘗試載入後端行情 API 與官方資料；事件來源仍依 Demo / Imported / Manual 明確標示。");
     } catch {
-      setOfficialMessage("官方資料讀取失敗；目前使用匯入 / 示範 fallback，不影響操作。");
+      setOfficialMessage("官方資料讀取失敗；行情資料會優先使用後端 quote / kline，否則 fallback 並明確標示。 ");
     }
   }
 
   useEffect(() => {
-    setManualEvents(loadEvents());
+    const storedEvents = loadEvents();
+    setManualEvents(storedEvents);
     setActionState(loadActionState());
     const settings = loadSettings();
     setDataMode(settings.dataMode === "DemoOnly" ? "demo" : settings.dataMode === "RealImportedOnly" ? "realOnly" : "hybrid");
@@ -73,11 +76,34 @@ export default function EventRadarPage() {
     ? mockEvents
     : mergeEventsByPriority(mockEvents, [], imported.events, manualOnly, dataMode === "realOnly" ? "RealImportedOnly" : "Hybrid");
 
+  useEffect(() => {
+    const symbols = effectiveEvents
+      .filter((event) => eventType === "all" || event.eventType === eventType)
+      .filter((event) => theme === "all" || event.relatedThemes.includes(theme))
+      .filter((event) => source === "all" || event.dataSource === source)
+      .filter((event) => {
+        const days = Math.ceil((new Date(`${event.eventDate}T00:00:00`).getTime() - new Date(new Date().toDateString()).getTime()) / 86400000);
+        return days >= 0 && days <= windowDays;
+      })
+      .map((event) => event.symbol)
+      .slice(0, 18);
+    if (!symbols.length) {
+      setBackendPrice([]);
+      return;
+    }
+    void fetchBackendPriceSnapshots(symbols).then((result) => {
+      setBackendPrice(result.priceSnapshots);
+      setOfficialMessage(`${result.sourceNote} 事件來源仍不會被自動假裝成真實事件。`);
+    }).catch(() => {
+      setOfficialMessage("後端行情 API 暫時不可用；事件雷達保留匯入 / 官方 / 示範 fallback。資料來源仍會明確標示。");
+    });
+  }, [dataMode, eventType, theme, source, windowDays, effectiveEvents.length]);
+
   const recomputed = recomputeEventScores({
     events: effectiveEvents,
     stocks: mockStocks,
     themes: mockThemes,
-    priceSnapshots: [...officialPrice, ...imported.priceSnapshots],
+    priceSnapshots: [...backendPrice, ...officialPrice, ...imported.priceSnapshots],
     institutionalFlows: [...officialFlow, ...imported.institutionalFlows],
     marketWarnings: [...officialWarnings, ...imported.marketWarnings]
   });
@@ -85,6 +111,7 @@ export default function EventRadarPage() {
   const eventTypes = Array.from(new Set([...mockEvents, ...effectiveEvents].map((event) => event.eventType)));
   const themes = Array.from(new Set(effectiveEvents.flatMap((event) => event.relatedThemes)));
   const today = new Date().toISOString().slice(0, 10);
+  const backendDataCount = backendPrice.filter((item) => item.dataSource !== "Demo").length;
   const rows: EventRow[] = recomputed.enrichedEvents
     .filter((row) => row.daysToEvent >= 0 && row.daysToEvent <= windowDays)
     .filter((row) => !actionState?.ignoredUntil[row.event.id] || actionState.ignoredUntil[row.event.id] < today)
@@ -149,6 +176,7 @@ export default function EventRadarPage() {
     { key: "title", header: "事件標題", accessor: (row) => <span className="block max-w-80 truncate" title={row.event.eventTitle}>{row.event.eventTitle}</span>, searchValue: (row) => row.event.eventTitle },
     { key: "catalyst", header: "催化分數", accessor: (row) => <ScoreBadge score={row.catalyst.totalCatalystScore} />, sortValue: (row) => row.catalyst.totalCatalystScore },
     { key: "alpha", header: "綜合 Alpha", accessor: (row) => <ScoreBadge score={row.alpha.combinedAlphaScore} />, sortValue: (row) => row.alpha.combinedAlphaScore },
+    { key: "priceSource", header: "行情來源", accessor: (row) => <DataSourceBadge source={row.sourceDiagnostics?.priceSource ?? row.stock?.dataSource ?? "Missing"} />, searchValue: (row) => row.sourceDiagnostics?.priceSource ?? row.stock?.dataSource ?? "Missing" },
     { key: "priced", header: "已反應", accessor: (row) => <RiskBadge level={row.pricedInRisk} />, sortValue: (row) => riskSort(row.pricedInRisk) },
     { key: "risk", header: "風險", accessor: (row) => <RiskBadge level={actionState?.flaggedOverheated.includes(row.event.id) ? "high" : row.overheatRisk} />, sortValue: (row) => riskSort(row.overheatRisk) },
     { key: "action", header: "下一步", accessor: (row) => formatNextAction(row.alpha.nextAction), searchValue: (row) => formatNextAction(row.alpha.nextAction) },
@@ -161,8 +189,9 @@ export default function EventRadarPage() {
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <p className="text-xs font-semibold tracking-[0.18em] text-emerald-700">EVENT RADAR</p>
         <h1 className="mt-2 text-2xl font-semibold text-slate-950">事件催化雷達</h1>
-        <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">追蹤未來 7 / 14 / 30 天可能影響資金注意力的事件，並根據匯入與官方資料重新計算技術、籌碼、過熱與已反應風險。</p>
+        <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">事件來源若尚未匯入正式資料，仍會標示為 Demo；行情、MA、RSI、近期報酬率會優先使用後端 quote / kline 重新計分。</p>
         <p className="mt-2 text-xs text-amber-700">{officialMessage}</p>
+        <p className="mt-1 text-xs text-cyan-800">後端行情資料：{backendDataCount || backendPrice.length} 檔；Demo fallback：{backendPrice.filter((item) => item.dataSource === "Demo").length} 檔。</p>
       </section>
 
       <SectionCard title="篩選條件">
@@ -182,9 +211,9 @@ export default function EventRadarPage() {
 
       <SectionCard title="重新計分摘要">
         <div className="grid gap-3 md:grid-cols-4">
+          <Metric label="後端行情" value={backendPrice.length} />
           <Metric label="匯入股價" value={imported.priceSnapshots.length} />
           <Metric label="匯入法人" value={imported.institutionalFlows.length} />
-          <Metric label="風險警示" value={imported.marketWarnings.length} />
           <Metric label="分數變動" value={recomputed.scoreChanges.length} />
         </div>
         <WarningList warnings={recomputed.warnings} />
@@ -219,38 +248,18 @@ function Select({ label, value, options, onChange }: { label: string; value: str
   return <label className="grid gap-1 text-xs text-slate-500">{label}<select className={inputClass} value={value} onChange={(event) => onChange(event.target.value)}>{options.map(([optionValue, text]) => <option key={optionValue} value={optionValue}>{text}</option>)}</select></label>;
 }
 
+function Metric({ label, value }: { label: string; value: number }) {
+  return <div className="rounded-md border border-slate-200 bg-slate-50 p-3"><div className="text-xs text-slate-500">{label}</div><div className="mt-1 text-xl font-semibold text-slate-950">{value}</div></div>;
+}
+
 function ScoreDetails({ row, actionState }: { row: EventRow; actionState: ActionState | null }) {
-  return (
-    <div className="grid gap-3 text-sm lg:grid-cols-3">
-      <div className="rounded-md border border-slate-200 bg-white p-3"><div className="font-semibold text-slate-950">一行摘要</div><p className="mt-2 text-slate-600">{row.event.symbol} / {row.event.name}：催化 {Math.round(row.catalyst.totalCatalystScore)}，Alpha {Math.round(row.alpha.combinedAlphaScore)}，下一步 {formatNextAction(row.alpha.nextAction)}。</p></div>
-      <div className="rounded-md border border-slate-200 bg-white p-3"><div className="font-semibold text-slate-950">加分來源</div><ul className="mt-2 space-y-1 text-slate-600"><li>事件重要度：{Math.round(row.catalyst.eventImportanceScore)}</li><li>題材熱度：{Math.round(row.catalyst.themeHeatScore)}</li><li>法人籌碼：{Math.round(row.alpha.flowConfirmationScore)}</li></ul></div>
-      <div className="rounded-md border border-slate-200 bg-white p-3"><div className="font-semibold text-slate-950">扣分 / 資料品質</div><ul className="mt-2 space-y-1 text-slate-600"><li>已反應風險：{formatRiskLevel(row.pricedInRisk)}</li><li>過熱風險：{actionState?.flaggedOverheated.includes(row.event.id) ? "使用者標記過熱" : formatRiskLevel(row.overheatRisk)}</li><li>{row.scoreRecomputed ? "已根據匯入 / 官方資料重新計分" : "使用 fallback 分數"}</li></ul></div>
-    </div>
-  );
+  return <div className="grid gap-3 text-sm text-slate-600 lg:grid-cols-2"><div><div className="font-semibold text-slate-950">分數拆解</div><ul className="mt-2 space-y-1"><li>催化：{Math.round(row.catalyst.totalCatalystScore)}</li><li>趨勢：{Math.round(row.alpha.quantTrendScore)}</li><li>籌碼：{Math.round(row.alpha.flowConfirmationScore)}</li><li>題材：{Math.round(row.alpha.themeMomentumScore)}</li><li>資料來源：事件 {row.sourceDiagnostics?.eventSource ?? row.event.dataSource} / 行情 {row.sourceDiagnostics?.priceSource ?? row.stock?.dataSource ?? "Missing"}</li></ul></div><div><div className="font-semibold text-slate-950">警示</div><WarningList warnings={[...row.alpha.warnings, ...row.catalyst.warnings, ...(row.dataQualityWarnings ?? []), actionState?.flaggedOverheated.includes(row.event.id) ? "使用者已標記為過熱。" : ""].filter(Boolean)} /></div></div>;
 }
 
-function ResearchDrawer({ row, actionState, onClose, onJournal, onSelectPlan }: { row: EventRow; actionState: ActionState | null; onClose: () => void; onJournal: () => void; onSelectPlan: () => void }) {
-  return (
-    <div className="fixed inset-0 z-40 bg-slate-950/30">
-      <aside className="absolute right-0 top-0 h-full w-full max-w-2xl overflow-y-auto bg-white p-5 shadow-xl">
-        <div className="flex items-start justify-between gap-3">
-          <div><p className="text-xs font-semibold tracking-[0.18em] text-emerald-700">研究詳情</p><h2 className="mt-2 text-xl font-semibold text-slate-950">{row.event.symbol} / {row.event.name}</h2><p className="mt-1 text-sm text-slate-600">{row.event.eventTitle}</p></div>
-          <button className="rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700" onClick={onClose}>關閉</button>
-        </div>
-        <div className="mt-4 grid gap-3 md:grid-cols-2"><Metric label="事件日期" value={formatDateTW(row.event.eventDate)} /><Metric label="下一步" value={formatNextAction(row.alpha.nextAction)} /><Metric label="催化分數" value={Math.round(row.catalyst.totalCatalystScore)} /><Metric label="綜合 Alpha" value={Math.round(row.alpha.combinedAlphaScore)} /></div>
-        <div className="mt-4 flex flex-wrap gap-2">{row.event.relatedThemes.map((theme) => <ThemeBadge key={theme} label={theme} />)}<DataSourceBadge source={row.event.dataSource} />{row.sourceDiagnostics ? <DataSourceBadge source={row.sourceDiagnostics.priceSource} /> : null}</div>
-        <div className="mt-4 grid gap-3 md:grid-cols-2"><SectionCard title="已反應 / 過熱風險"><div className="flex gap-2"><RiskBadge level={row.pricedInRisk} /><RiskBadge level={actionState?.flaggedOverheated.includes(row.event.id) ? "high" : row.overheatRisk} /></div></SectionCard><SectionCard title="資料來源"><p className="text-sm text-slate-600">事件：{row.event.sourceNote}</p><p className="mt-2 text-sm text-slate-600">技術：{row.sourceDiagnostics?.priceSource ?? "Demo"}，籌碼：{row.sourceDiagnostics?.flowSource ?? "Demo"}，估算欄位：{row.sourceDiagnostics?.estimatedFields.join(", ") || "無"}</p></SectionCard></div>
-        <SectionCard title="分數說明"><p className="text-sm leading-6 text-slate-600">{explainAlphaRow(row)}</p><div className="mt-3"><WarningList warnings={[...(row.dataQualityWarnings ?? []), ...row.catalyst.warnings, ...row.alpha.warnings]} /></div></SectionCard>
-        <div className="mt-4 flex flex-wrap gap-2"><Link className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white" href={`/trade-plan?eventId=${row.event.id}&symbol=${row.event.symbol}&from=event-radar`} onClick={onSelectPlan}>建立交易計畫</Link><Link className="rounded-md border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm font-semibold text-cyan-800" href={`/market?symbol=${row.event.symbol}`}>查看最新報價 / K 線</Link><button className="rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700" onClick={onJournal}>加入日誌</button></div>
-      </aside>
-    </div>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string | number }) {
-  return <div className="rounded-md border border-slate-200 bg-slate-50 p-3"><div className="text-xs text-slate-500">{label}</div><div className="mt-1 font-semibold text-slate-950">{value}</div></div>;
+function ResearchDrawer({ row, onClose, onJournal, onSelectPlan }: { row: EventRow; actionState: ActionState | null; onClose: () => void; onJournal: () => void; onSelectPlan: () => void }) {
+  return <div className="fixed inset-0 z-50 bg-slate-950/30 p-4" role="dialog"><div className="ml-auto h-full max-w-3xl overflow-y-auto rounded-lg bg-white p-5 shadow-xl"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold tracking-[0.18em] text-emerald-700">RESEARCH DETAIL</p><h2 className="mt-1 text-xl font-semibold text-slate-950">{row.event.symbol} {row.event.name}</h2><p className="mt-1 text-sm text-slate-500">{row.event.eventTitle}</p></div><button className="rounded border border-slate-200 px-2 py-1 text-sm" onClick={onClose}>關閉</button></div><div className="mt-4 grid gap-3 md:grid-cols-3"><ScoreBadge score={row.catalyst.totalCatalystScore} /><ScoreBadge score={row.alpha.combinedAlphaScore} /><RiskBadge level={row.pricedInRisk} /></div><div className="mt-4 space-y-3 text-sm leading-6 text-slate-700"><p>{explainAlphaRow(row)}</p><div className="flex flex-wrap gap-2">{row.event.relatedThemes.map((item) => <ThemeBadge key={item} label={item} />)}</div><WarningList warnings={[...row.alpha.warnings, ...row.catalyst.warnings, ...(row.dataQualityWarnings ?? [])]} /><div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">事件來源：{row.event.dataSource}；行情來源：{row.sourceDiagnostics?.priceSource ?? row.stock?.dataSource ?? "Missing"}；{row.stock?.sourceNote}</div></div><div className="mt-5 flex flex-wrap gap-2"><Link className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white" href={`/trade-plan?eventId=${row.event.id}&symbol=${row.event.symbol}&from=event-radar`} onClick={onSelectPlan}>建立交易計畫</Link><Link className="rounded-md bg-cyan-600 px-3 py-2 text-sm font-semibold text-white" href={`/market?symbol=${row.event.symbol}`}>查看 K 線</Link><button className="rounded-md border border-slate-200 px-3 py-2 text-sm" onClick={onJournal}>加入日誌</button></div></div></div>;
 }
 
 function riskSort(level: string): number {
-  return ({ low: 0, medium: 1, high: 2, critical: 3 } as Record<string, number>)[level] ?? 0;
+  return level === "critical" ? 4 : level === "high" ? 3 : level === "medium" ? 2 : 1;
 }
