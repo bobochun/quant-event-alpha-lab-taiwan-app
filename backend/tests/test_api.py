@@ -87,6 +87,26 @@ def test_yfinance_status_does_not_crash():
     assert yf_rows[0]["status"] in {"ok", "degraded", "disabled", "error"}
 
 
+def test_events_upcoming_without_token_does_not_crash():
+    response = client.get("/events/upcoming?days=30&symbols=2330,2382")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert "events" in body["data"]
+    assert "providers" in body["data"]
+    assert isinstance(body["data"]["events"], list)
+    assert any(row["provider"] == "finmind-events" for row in body["data"]["providers"])
+
+
+def test_event_providers_status():
+    response = client.get("/events/providers")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert isinstance(body["data"], list)
+    assert any(row["supportsEvents"] for row in body["data"])
+
+
 def test_indicators_calculation():
     closes = [float(value) for value in range(1, 31)]
     assert sma(closes, 5)[4] == 3.0
