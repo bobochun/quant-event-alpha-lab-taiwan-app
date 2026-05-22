@@ -5,6 +5,7 @@ const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000
 export type QuantRiskLevel = "low" | "medium" | "high" | "critical";
 export type QuantTrendState = "bullish" | "sideways" | "bearish" | "unknown";
 export type QuantMomentumState = "warming" | "hot" | "cooling" | "weak" | "unknown";
+export type QuantMode = "balanced" | "lowBase" | "momentumRotation" | "pullback" | "overheatAvoidance" | "riskFirst";
 
 export type QuantScoreBreakdown = {
   trendScore: number;
@@ -53,6 +54,50 @@ export type QuantBatchPayload = {
   generatedAt: string;
 };
 
+export type QuantModeConfig = {
+  mode: QuantMode;
+  label: string;
+  description: string;
+  bestFor: string;
+  weights: Record<string, number>;
+  hardFilters: string[];
+  warnings: string[];
+};
+
+export type SystematicQuantResult = {
+  symbol: string;
+  name: string;
+  mode: QuantMode;
+  modeLabel: string;
+  systematicScore: number;
+  baseQuantScore: number;
+  rank: number;
+  percentile: number;
+  passedFilters: boolean;
+  rejectReasons: string[];
+  keyDrivers: string[];
+  warnings: string[];
+  nextAction: string;
+  latestClose?: number | null;
+  trendState: QuantTrendState;
+  momentumState: QuantMomentumState;
+  overheatRisk: QuantRiskLevel;
+  dataQuality: "high" | "medium" | "low";
+  provider: string;
+  dataSource: string;
+  explanation: string;
+};
+
+export type SystematicScanPayload = {
+  mode: QuantMode;
+  modeConfig: QuantModeConfig;
+  universeSize: number;
+  passedCount: number;
+  results: SystematicQuantResult[];
+  warnings: string[];
+  generatedAt: string;
+};
+
 export async function fetchQuantAnalysis(symbol: string, interval = "1d", range = "1y"): Promise<QuantAnalysisResult> {
   const params = new URLSearchParams({ interval, range });
   const response = await fetchWithTimeout(`${backendUrl}/quant/analyze/${encodeURIComponent(symbol)}?${params.toString()}`, 12000);
@@ -69,6 +114,28 @@ export async function fetchQuantBatch(symbols: string[], interval = "1d", range 
   const body = await response.json();
   if (!body.ok) throw new Error(body.error ?? "Quant batch API error");
   return body.data as QuantBatchPayload;
+}
+
+export async function fetchQuantModes(): Promise<QuantModeConfig[]> {
+  const response = await fetchWithTimeout(`${backendUrl}/quant/modes`, 8000);
+  if (!response.ok) throw new Error(`Quant modes API HTTP ${response.status}`);
+  const body = await response.json();
+  if (!body.ok) throw new Error(body.error ?? "Quant modes API error");
+  return body.data as QuantModeConfig[];
+}
+
+export async function fetchSystematicScan(symbols: string[], mode: QuantMode, interval = "1d", range = "1y"): Promise<SystematicScanPayload> {
+  const params = new URLSearchParams({
+    mode,
+    symbols: Array.from(new Set(symbols.map((symbol) => symbol.trim()).filter(Boolean))).join(","),
+    interval,
+    range
+  });
+  const response = await fetchWithTimeout(`${backendUrl}/quant/systematic-scan?${params.toString()}`, 25000);
+  if (!response.ok) throw new Error(`Systematic scan API HTTP ${response.status}`);
+  const body = await response.json();
+  if (!body.ok) throw new Error(body.error ?? "Systematic scan API error");
+  return body.data as SystematicScanPayload;
 }
 
 async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
