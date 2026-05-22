@@ -1,4 +1,6 @@
 from datetime import date, datetime, timezone
+import math
+from typing import Any
 
 from app.core.config import Settings
 from app.data_sources.base import MarketDataProvider, ProviderUnavailable, UnsupportedInterval
@@ -31,22 +33,26 @@ class YFinanceProvider(MarketDataProvider):
             history = ticker.history(period="5d", interval="1d")
         if history.empty:
             raise ProviderUnavailable("yfinance 沒有回傳可用資料。")
+        history = history.dropna(subset=["Close"])
+        if history.empty:
+            raise ProviderUnavailable("yfinance 回傳資料缺少有效收盤價。")
         latest = history.iloc[-1]
         previous = history.iloc[-2]["Close"] if len(history) > 1 else latest["Close"]
-        price = float(latest["Close"])
-        change = price - float(previous)
+        price = _required_float(latest.get("Close"), "Close")
+        previous_close = _finite_float(previous) or price
+        change = price - previous_close
         fetched = datetime.now(timezone.utc).isoformat()
         return QuoteData(
             symbol=symbol,
             name=security_name(symbol),
             price=round(price, 2),
-            previousClose=round(float(previous), 2),
+            previousClose=round(previous_close, 2),
             change=round(change, 2),
-            changePercent=round((change / float(previous)) * 100, 2) if previous else 0,
-            open=round(float(latest["Open"]), 2),
-            high=round(float(latest["High"]), 2),
-            low=round(float(latest["Low"]), 2),
-            volume=int(latest["Volume"]),
+            changePercent=round((change / previous_close) * 100, 2) if previous_close else 0,
+            open=_round_optional(latest.get("Open")),
+            high=_round_optional(latest.get("High")),
+            low=_round_optional(latest.get("Low")),
+            volume=_int_optional(latest.get("Volume")),
             value=None,
             quoteTime=str(history.index[-1]),
             provider=self.provider_name,
@@ -77,15 +83,23 @@ class YFinanceProvider(MarketDataProvider):
             raise ProviderUnavailable("yfinance 沒有回傳可用 K 線資料。")
         bars: list[PriceBar] = []
         for timestamp, row in history.iterrows():
+            open_price = _finite_float(row.get("Open"))
+            high_price = _finite_float(row.get("High"))
+            low_price = _finite_float(row.get("Low"))
+            close_price = _finite_float(row.get("Close"))
+            if open_price is None or high_price is None or low_price is None or close_price is None:
+                continue
             bars.append(PriceBar(
                 time=str(timestamp),
-                open=round(float(row["Open"]), 2),
-                high=round(float(row["High"]), 2),
-                low=round(float(row["Low"]), 2),
-                close=round(float(row["Close"]), 2),
-                volume=int(row["Volume"]),
+                open=round(open_price, 2),
+                high=round(high_price, 2),
+                low=round(low_price, 2),
+                close=round(close_price, 2),
+                volume=_int_optional(row.get("Volume")) or 0,
                 value=None,
             ))
+        if not bars:
+            raise ProviderUnavailable("yfinance K 線資料缺少有效 OHLC。")
         return bars
 
     def supports_interval(self, interval: Interval) -> bool:
@@ -108,3 +122,28 @@ class YFinanceProvider(MarketDataProvider):
             isRealtime=False,
             tokenConfigured=False,
         )
+
+
+def _finite_float(value: Any) -> float | None:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    return result if math.isfinite(result) else None
+
+
+def _required_float(value: Any, field_name: str) -> float:
+    result = _finite_float(value)
+    if result is None:
+        raise ProviderUnavailable(f"yfinance 回傳 {field_name} 為空值或 NaN。")
+    return result
+
+
+def _round_optional(value: Any) -> float | None:
+    result = _finite_float(value)
+    return round(result, 2) if result is not None else None
+
+
+def _int_optional(value: Any) -> int | None:
+    result = _finite_float(value)
+    return int(result) if result is not None else None
