@@ -195,16 +195,40 @@ def test_source_digest_collect_and_query():
     assert "sources" in collect.json()["data"]
 
 
+def test_ai_status_and_fallback_extraction():
+    status = client.get("/ai/status")
+    extraction = client.post("/ai/extract-event-factors", json={
+        "text": "2330 台積電將舉辦法說會，市場關注 AI server 與 CoWoS 需求。",
+        "symbols": ["2330"],
+        "themes": ["AI server", "CoWoS"],
+        "sourceUrl": "manual://test",
+        "sourceTitle": "pytest manual input"
+    })
+    digest = client.post("/ai/analyze-source-digest", json={"symbols": ["2330"], "themes": ["AI server"], "maxItems": 2})
+    assert status.status_code == 200
+    assert extraction.status_code == 200
+    assert digest.status_code == 200
+    assert status.json()["ok"] is True
+    assert extraction.json()["ok"] is True
+    assert digest.json()["ok"] is True
+    assert "factors" in extraction.json()["data"]
+    assert extraction.json()["data"]["factors"][0]["symbol"] == "2330"
+    assert extraction.json()["data"]["factors"][0]["shouldIncludeInAlpha"] is False
+
+
 def test_jobs_quant_scan_and_data_quality():
     scan = client.post("/jobs/run", json={"jobName": "refresh_factor_scores", "symbols": ["2330", "2382"]})
     quality = client.post("/jobs/run", json={"jobName": "data_quality_check", "symbols": ["2330"]})
     digest = client.post("/jobs/run", json={"jobName": "source_digest_collect", "symbols": ["2330"]})
+    ai_job = client.post("/jobs/run", json={"jobName": "ai_source_digest_analysis", "symbols": ["2330"]})
     assert scan.status_code == 200
     assert quality.status_code == 200
     assert digest.status_code == 200
+    assert ai_job.status_code == 200
     assert scan.json()["ok"] is True
     assert quality.json()["ok"] is True
     assert digest.json()["ok"] is True
+    assert ai_job.json()["ok"] is True
 
 
 def test_indicators_calculation():
