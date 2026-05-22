@@ -10,6 +10,7 @@ from app.api.routes_market_data import router as market_data_router
 from app.api.routes_quant import router as quant_router
 from app.api.routes_quotes import router as quotes_router
 from app.api.routes_research import router as research_router
+from app.api.routes_source_digest import router as source_digest_router
 from app.api.routes_sources import router as sources_router
 from app.core.config import get_settings
 from app.core.cors import configure_cors
@@ -28,6 +29,7 @@ app.include_router(quotes_router)
 app.include_router(kline_router)
 app.include_router(quant_router)
 app.include_router(research_router)
+app.include_router(source_digest_router)
 app.include_router(market_data_router)
 app.include_router(sources_router)
 app.include_router(events_router)
@@ -90,6 +92,7 @@ async def diagnostics():
                 "officialData": settings.enable_official_data,
                 "yfinanceFallback": settings.enable_yfinance,
                 "demoFallback": settings.enable_demo_fallback,
+                "publicSourceDigest": settings.enable_public_web_crawler,
             },
             "cache": {
                 "quoteCacheSeconds": settings.quote_cache_seconds,
@@ -112,6 +115,7 @@ async def diagnostics():
                 "research": "/research/cross-section",
                 "eventStudy": "/research/event-study",
                 "portfolioOptimizer": "/research/portfolio-optimize",
+                "sourceDigest": "/source-digest/collect",
             },
         },
         "Demo",
