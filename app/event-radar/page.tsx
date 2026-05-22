@@ -5,8 +5,8 @@ import { useEffect, useState } from "react";
 import { DataSourceBadge, EventTypeBadge, RiskBadge, ScoreBadge, SectionCard, ThemeBadge, WarningList } from "../components/ui";
 import { DataTable, type DataTableColumn } from "../components/ui/DataTable";
 import { flagEventOverheated, ignoreEventUntil, loadActionState, markEventReviewed, markJournalLinked, type ActionState } from "../lib/actionState";
+import { fetchBackendEvents } from "../lib/backendEventsApi";
 import { fetchBackendPriceSnapshots } from "../lib/backendMarketSnapshots";
-import { mergeEventsByPriority } from "../lib/dataSources/mergeSources";
 import { explainAlphaRow } from "../lib/explanations";
 import { loadImportedDataset } from "../lib/importers";
 import { mockEvents, mockStocks, mockThemes } from "../lib/mockData";
@@ -14,7 +14,7 @@ import { saveSelectedEvent } from "../lib/navigationState";
 import { recomputeEventScores } from "../lib/recomputeScores";
 import { loadEvents, loadJournal, loadSettings, loadTradePlans, saveJournal } from "../lib/storage";
 import type { AlphaEngineResult, DataSource, Event, EventType, InstitutionalFlowRecord, MarketWarningRecord, PriceSnapshot } from "../lib/types";
-import { EVENT_TYPE_LABELS, addDays, formatDateTW, formatNextAction, formatRiskLevel, localizeTheme } from "../lib/utils";
+import { EVENT_TYPE_LABELS, addDays, formatDateTW, formatNextAction, localizeTheme } from "../lib/utils";
 
 type EventRow = AlphaEngineResult & { id: string };
 type SourceFilter = "all" | DataSource;
@@ -23,14 +23,15 @@ type DataMode = "hybrid" | "realOnly" | "demo";
 const inputClass = "rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-900 outline-none focus:border-cyan-500";
 
 export default function EventRadarPage() {
-  const [manualEvents, setManualEvents] = useState<Event[]>(mockEvents);
+  const [manualEvents, setManualEvents] = useState<Event[]>([]);
+  const [backendEvents, setBackendEvents] = useState<Event[]>([]);
   const [actionState, setActionState] = useState<ActionState | null>(null);
   const [selected, setSelected] = useState<EventRow | null>(null);
   const [backendPrice, setBackendPrice] = useState<PriceSnapshot[]>([]);
   const [officialPrice, setOfficialPrice] = useState<PriceSnapshot[]>([]);
   const [officialFlow, setOfficialFlow] = useState<InstitutionalFlowRecord[]>([]);
   const [officialWarnings, setOfficialWarnings] = useState<MarketWarningRecord[]>([]);
-  const [officialMessage, setOfficialMessage] = useState("後端行情 API 尚未載入；事件本身若無正式來源，仍會明確標示 Demo / Imported / Manual。");
+  const [officialMessage, setOfficialMessage] = useState("正在嘗試由後端事件 API 與行情 API 取得資料；缺資料時才使用匯入 / 手動 / Demo fallback。");
   const [windowDays, setWindowDays] = useState(7);
   const [eventType, setEventType] = useState<EventType | "all">("all");
   const [theme, setTheme] = useState("all");
@@ -53,28 +54,32 @@ export default function EventRadarPage() {
       setOfficialPrice((priceBody.data?.records ?? []).filter((item: PriceSnapshot) => item.dataSource === "Official"));
       setOfficialFlow((flowBody.data?.records ?? []) as InstitutionalFlowRecord[]);
       setOfficialWarnings((warningBody.data?.records ?? []) as MarketWarningRecord[]);
-      setOfficialMessage("已嘗試載入後端行情 API 與官方資料；事件來源仍依 Demo / Imported / Manual 明確標示。");
     } catch {
-      setOfficialMessage("官方資料讀取失敗；行情資料會優先使用後端 quote / kline，否則 fallback 並明確標示。 ");
+      setOfficialMessage("官方 Next.js route 讀取失敗；仍會優先嘗試後端事件 / 行情 API，再 fallback。 ");
     }
   }
 
   useEffect(() => {
     const storedEvents = loadEvents();
-    setManualEvents(storedEvents);
+    setManualEvents(storedEvents.filter((event) => event.dataSource === "Manual"));
     setActionState(loadActionState());
     const settings = loadSettings();
     setDataMode(settings.dataMode === "DemoOnly" ? "demo" : settings.dataMode === "RealImportedOnly" ? "realOnly" : "hybrid");
     void loadOfficialData();
+    void fetchBackendEvents({ days: 30 }).then((result) => {
+      setBackendEvents(result.events);
+      setOfficialMessage(result.sourceNote || (result.events.length ? `後端事件 API 已取得 ${result.events.length} 筆事件。` : "後端事件 API 目前無正式事件，將使用匯入 / 手動 / Demo fallback。"));
+    }).catch(() => {
+      setOfficialMessage("後端事件 API 暫時不可用；事件雷達保留匯入 / 手動 / 示範 fallback，且資料來源會明確標示。");
+    });
   }, []);
 
   const imported = loadImportedDataset();
   const plans = loadTradePlans();
   const plannedEventIds = new Set([...plans.map((plan) => plan.relatedEventId).filter((id): id is string => Boolean(id)), ...(actionState?.createdTradePlanEventIds ?? [])]);
-  const manualOnly = manualEvents.filter((event) => event.dataSource === "Manual");
   const effectiveEvents = dataMode === "demo"
     ? mockEvents
-    : mergeEventsByPriority(mockEvents, [], imported.events, manualOnly, dataMode === "realOnly" ? "RealImportedOnly" : "Hybrid");
+    : mergeEventSources(backendEvents, imported.events, manualEvents, mockEvents, dataMode !== "realOnly");
 
   useEffect(() => {
     const symbols = effectiveEvents
@@ -93,7 +98,7 @@ export default function EventRadarPage() {
     }
     void fetchBackendPriceSnapshots(symbols).then((result) => {
       setBackendPrice(result.priceSnapshots);
-      setOfficialMessage(`${result.sourceNote} 事件來源仍不會被自動假裝成真實事件。`);
+      setOfficialMessage((previous) => `${previous} ${result.sourceNote}`);
     }).catch(() => {
       setOfficialMessage("後端行情 API 暫時不可用；事件雷達保留匯入 / 官方 / 示範 fallback。資料來源仍會明確標示。");
     });
@@ -112,6 +117,7 @@ export default function EventRadarPage() {
   const themes = Array.from(new Set(effectiveEvents.flatMap((event) => event.relatedThemes)));
   const today = new Date().toISOString().slice(0, 10);
   const backendDataCount = backendPrice.filter((item) => item.dataSource !== "Demo").length;
+  const backendEventCount = backendEvents.length;
   const rows: EventRow[] = recomputed.enrichedEvents
     .filter((row) => row.daysToEvent >= 0 && row.daysToEvent <= windowDays)
     .filter((row) => !actionState?.ignoredUntil[row.event.id] || actionState.ignoredUntil[row.event.id] < today)
@@ -189,18 +195,18 @@ export default function EventRadarPage() {
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <p className="text-xs font-semibold tracking-[0.18em] text-emerald-700">EVENT RADAR</p>
         <h1 className="mt-2 text-2xl font-semibold text-slate-950">事件催化雷達</h1>
-        <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">事件來源若尚未匯入正式資料，仍會標示為 Demo；行情、MA、RSI、近期報酬率會優先使用後端 quote / kline 重新計分。</p>
+        <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">事件來源優先使用後端事件 API 與匯入 / 手動資料；只有沒有正式來源時才使用 Demo fallback。行情、MA、RSI、近期報酬率會優先使用後端 quote / kline 重新計分。</p>
         <p className="mt-2 text-xs text-amber-700">{officialMessage}</p>
-        <p className="mt-1 text-xs text-cyan-800">後端行情資料：{backendDataCount || backendPrice.length} 檔；Demo fallback：{backendPrice.filter((item) => item.dataSource === "Demo").length} 檔。</p>
+        <p className="mt-1 text-xs text-cyan-800">後端事件：{backendEventCount} 筆；後端行情：{backendDataCount || backendPrice.length} 檔；行情 Demo fallback：{backendPrice.filter((item) => item.dataSource === "Demo").length} 檔。</p>
       </section>
 
       <SectionCard title="篩選條件">
         <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
-          <Select label="資料模式" value={dataMode} options={[["hybrid", "全部 / Hybrid"], ["realOnly", "手動 + 匯入 + 官方"], ["demo", "只看示範"]]} onChange={(value) => setDataMode(value as DataMode)} />
+          <Select label="資料模式" value={dataMode} options={[["hybrid", "全部 / Hybrid"], ["realOnly", "手動 + 匯入 + 後端"], ["demo", "只看示範"]]} onChange={(value) => setDataMode(value as DataMode)} />
           <Select label="事件期間" value={String(windowDays)} options={[["7", "7 天"], ["14", "14 天"], ["30", "30 天"]]} onChange={(value) => setWindowDays(Number(value))} />
           <Select label="事件類型" value={eventType} options={[["all", "全部"], ...eventTypes.map((type) => [type, EVENT_TYPE_LABELS[type] ?? type] as [string, string])]} onChange={(value) => setEventType(value as EventType | "all")} />
           <Select label="題材" value={theme} options={[["all", "全部"], ...themes.map((item) => [item, localizeTheme(item)] as [string, string])]} onChange={setTheme} />
-          <Select label="資料來源" value={source} options={[["all", "全部"], ["Official", "官方"], ["Imported", "匯入"], ["Manual", "手動"], ["Demo", "示範"]]} onChange={(value) => setSource(value as SourceFilter)} />
+          <Select label="資料來源" value={source} options={[["all", "全部"], ["Official", "官方/後端"], ["Imported", "匯入"], ["Manual", "手動"], ["Demo", "示範"]]} onChange={(value) => setSource(value as SourceFilter)} />
           <label className="grid gap-1 text-xs text-slate-500">最低催化分數<input className={inputClass} type="number" value={minCatalyst} onChange={(event) => setMinCatalyst(Number(event.target.value))} /></label>
           <label className="grid gap-1 text-xs text-slate-500">最低 Alpha 分數<input className={inputClass} type="number" value={minAlpha} onChange={(event) => setMinAlpha(Number(event.target.value))} /></label>
           <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={hideOverheated} onChange={(event) => setHideOverheated(event.target.checked)} />隱藏過熱標的</label>
@@ -211,9 +217,9 @@ export default function EventRadarPage() {
 
       <SectionCard title="重新計分摘要">
         <div className="grid gap-3 md:grid-cols-4">
+          <Metric label="後端事件" value={backendEventCount} />
           <Metric label="後端行情" value={backendPrice.length} />
-          <Metric label="匯入股價" value={imported.priceSnapshots.length} />
-          <Metric label="匯入法人" value={imported.institutionalFlows.length} />
+          <Metric label="匯入事件" value={imported.events.length} />
           <Metric label="分數變動" value={recomputed.scoreChanges.length} />
         </div>
         <WarningList warnings={recomputed.warnings} />
@@ -242,6 +248,16 @@ export default function EventRadarPage() {
       {selected ? <ResearchDrawer row={selected} actionState={actionState} onClose={() => setSelected(null)} onJournal={() => addJournalNote(selected)} onSelectPlan={() => rememberSelected(selected)} /> : null}
     </div>
   );
+}
+
+function mergeEventSources(backend: Event[], imported: Event[], manual: Event[], demo: Event[], includeDemoFallback: boolean): Event[] {
+  const output = new Map<string, Event>();
+  const realLikeEvents = [...imported, ...manual, ...backend];
+  if (includeDemoFallback || !realLikeEvents.length) {
+    demo.forEach((event) => output.set(`${event.symbol}|${event.eventType}|${event.eventDate}|${event.eventTitle}`, event));
+  }
+  realLikeEvents.forEach((event) => output.set(`${event.symbol}|${event.eventType}|${event.eventDate}|${event.eventTitle}`, event));
+  return Array.from(output.values());
 }
 
 function Select({ label, value, options, onChange }: { label: string; value: string; options: Array<[string, string]>; onChange: (value: string) => void }) {
