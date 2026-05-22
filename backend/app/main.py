@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from app.api.routes_events import router as events_router
 from app.api.routes_kline import router as kline_router
 from app.api.routes_market_data import router as market_data_router
+from app.api.routes_quant import router as quant_router
 from app.api.routes_quotes import router as quotes_router
 from app.api.routes_sources import router as sources_router
 from app.core.config import get_settings
@@ -24,6 +25,7 @@ STARTED_AT = time.time()
 
 app.include_router(quotes_router)
 app.include_router(kline_router)
+app.include_router(quant_router)
 app.include_router(market_data_router)
 app.include_router(sources_router)
 app.include_router(events_router)
@@ -104,6 +106,7 @@ async def diagnostics():
                 "yfinance": "enabled" if settings.enable_yfinance else "disabled",
                 "demo": "enabled" if settings.enable_demo_fallback else "disabled",
                 "events": "/events/upcoming",
+                "quant": "/quant/analyze/2330",
             },
         },
         "Demo",
