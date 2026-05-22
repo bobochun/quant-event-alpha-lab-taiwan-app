@@ -8,30 +8,40 @@ import { generateTodayActionList } from "./lib/actionList";
 import { daysBetween, formatDataSource, MARKET_REGIME_LABELS, todayTaipei, VOLATILITY_LABELS, localizeTheme } from "./lib/utils";
 import { ActionList, CatalystTable, DataSourceBadge, MiniMetricGrid, SectionCard, ThemeHeatPanel } from "./components/ui";
 import { loadActionState, type ActionState } from "./lib/actionState";
+import { fetchBackendEvents } from "./lib/backendEventsApi";
 import { fetchBackendPriceSnapshots } from "./lib/backendMarketSnapshots";
-import { loadImportedDataset, mergeDemoImportedManualEvents, mergeStocksWithImported } from "./lib/importers";
+import { loadImportedDataset, mergeStocksWithImported } from "./lib/importers";
 import { recomputeEventScores } from "./lib/recomputeScores";
 import { loadEvents, loadSettings, saveSettings } from "./lib/storage";
-import type { AppSettings, PriceSnapshot } from "./lib/types";
+import type { AppSettings, Event, PriceSnapshot } from "./lib/types";
 
 const defaultWidgets = ["market", "snapshot", "topTable", "actions", "themeHeat", "portfolioRisk", "journal"];
 
 export default function CommandCenterPage() {
   const [actionState, setActionState] = useState<ActionState | null>(null);
   const [settings, setSettings] = useState<AppSettings>(mockSettings);
+  const [backendEvents, setBackendEvents] = useState<Event[]>([]);
+  const [backendEventNote, setBackendEventNote] = useState("正在嘗試由後端事件 API 取得月營收、除權息與官方 metadata...");
   const [backendSnapshots, setBackendSnapshots] = useState<PriceSnapshot[]>([]);
   const [backendMarketNote, setBackendMarketNote] = useState("正在嘗試由後端行情 API 取得價格與 K 線資料...");
 
   useEffect(() => {
     setActionState(loadActionState());
     setSettings(loadSettings());
+    void fetchBackendEvents({ days: 30 }).then((result) => {
+      setBackendEvents(result.events);
+      setBackendEventNote(result.sourceNote || (result.events.length ? `後端事件 API 取得 ${result.events.length} 筆事件。` : "後端目前沒有正式事件，保留匯入 / 手動 / Demo fallback。"));
+    }).catch(() => {
+      setBackendEventNote("後端事件 API 暫時不可用；目前保留匯入 / 手動 / Demo fallback，且不會假裝 demo 為真實事件。 ");
+    });
   }, []);
 
+  const imported = loadImportedDataset();
+  const manualEvents = loadEvents().filter((event) => event.dataSource === "Manual");
+  const events = mergeEventSources(backendEvents, imported.events, manualEvents, mockEvents);
+
   useEffect(() => {
-    const imported = loadImportedDataset();
-    const manualEvents = loadEvents().filter((event) => event.dataSource === "Manual");
-    const effectiveEvents = mergeDemoImportedManualEvents(mockEvents, imported.events, manualEvents);
-    const symbols = effectiveEvents
+    const symbols = events
       .filter((event) => daysBetween(todayTaipei(), event.eventDate) <= 7)
       .map((event) => event.symbol)
       .slice(0, 12);
@@ -41,11 +51,8 @@ export default function CommandCenterPage() {
     }).catch(() => {
       setBackendMarketNote("後端行情 API 暫時不可用；目前保留示範 / 匯入 fallback。資料來源會明確標示。");
     });
-  }, []);
+  }, [events.length]);
 
-  const imported = loadImportedDataset();
-  const manualEvents = loadEvents().filter((event) => event.dataSource === "Manual");
-  const events = mergeDemoImportedManualEvents(mockEvents, imported.events, manualEvents);
   const baseStocks = mergeStocksWithImported(mockStocks, imported.stocks);
   const upcoming = events.filter((event) => daysBetween(todayTaipei(), event.eventDate) <= 7);
   const priceSnapshots = [...backendSnapshots, ...imported.priceSnapshots];
@@ -64,6 +71,7 @@ export default function CommandCenterPage() {
   const exposure = analyzePortfolioExposure(mockPortfolio);
   const widgets = settings.dashboardWidgets ?? defaultWidgets;
   const backendDataCount = backendSnapshots.filter((snapshot) => snapshot.dataSource !== "Demo").length;
+  const eventSourceBadge = backendEvents.length ? "Official" : imported.events.length ? "Imported" : manualEvents.length ? "Manual" : "Demo";
 
   const actions = generateTodayActionList({
     rows,
@@ -101,10 +109,13 @@ export default function CommandCenterPage() {
             <h1 className="mt-2 text-3xl font-semibold text-slate-950">台股量化事件研究室</h1>
             <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">用事件催化、題材熱度、量化分數與風控紀律，找出未來 7 天值得研究的台股標的。</p>
             <p className="mt-3 max-w-5xl rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">本工具僅供個人研究、策略模擬、事件追蹤與風險控管，不構成投資建議。所有交易請自行判斷並承擔風險。</p>
-            <p className="mt-2 text-xs text-cyan-800">{backendMarketNote} 事件資料若未匯入正式來源，仍會標示為 Demo / Imported / Manual。</p>
+            <p className="mt-2 text-xs text-cyan-800">{backendEventNote}</p>
+            <p className="mt-1 text-xs text-cyan-800">{backendMarketNote}</p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <DataSourceBadge source={eventSourceBadge} />
             <DataSourceBadge source={backendDataCount ? "Cached" : imported.summaries.length ? "Imported" : "Demo"} />
+            <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-600">後端事件 {backendEvents.length} 筆</span>
             <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-600">後端行情 {backendDataCount || backendSnapshots.length} 檔</span>
             <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-600">不做自動下單</span>
             <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-600">不接券商 API</span>
@@ -184,12 +195,22 @@ export default function CommandCenterPage() {
   );
 }
 
+function mergeEventSources(backend: Event[], imported: Event[], manual: Event[], demo: Event[]): Event[] {
+  const output = new Map<string, Event>();
+  [...demo, ...imported, ...manual, ...backend].forEach((event) => {
+    const key = `${event.symbol}|${event.eventType}|${event.eventDate}|${event.eventTitle}`;
+    output.set(key, event);
+  });
+  const hasRealLikeEvents = backend.length || imported.length || manual.length;
+  return hasRealLikeEvents ? Array.from(output.values()) : demo;
+}
+
 function OnboardingCard({ onDone }: { onDone: () => void }) {
   return (
     <SectionCard title="第一次使用">
       <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-center">
         <div className="text-sm leading-6 text-slate-600">
-          <p>目前行情與技術分數會優先使用後端 API；事件資料若尚未匯入正式來源，仍以 Demo 明確標示。可到資料狀態中心下載 CSV 模板補事件、月營收、股利、ETF 調整等資料。</p>
+          <p>事件資料會優先使用後端事件 API 與你匯入的資料；行情與技術分數會優先使用後端 quote / kline。若後端事件來源尚未取得資料，Demo 仍會明確標示。</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Link className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white" href="/event-radar">檢查事件雷達</Link>
