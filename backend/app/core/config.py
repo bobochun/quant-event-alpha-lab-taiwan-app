@@ -32,6 +32,14 @@ class Settings(BaseSettings):
     quote_cache_seconds: int = 10
     kline_cache_seconds: int = 300
 
+    enable_public_web_crawler: bool = False
+    crawler_user_agent: str = "QuantEventAlphaLabTaiwan/0.1 research metadata bot; contact=local-user"
+    crawler_allowed_domains: str = "mops.twse.com.tw,openapi.twse.com.tw,www.twse.com.tw,www.tpex.org.tw,finmindtrade.com"
+    crawler_timeout_ms: int = 8000
+    crawler_max_pages_per_run: int = 12
+    crawler_respect_robots: bool = True
+    crawler_min_request_interval_ms: int = 1200
+
     class Config:
         env_file = ".env"
         extra = "ignore"
@@ -39,6 +47,10 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [item.strip() for item in self.cors_origins.split(",") if item.strip()]
+
+    @property
+    def crawler_allowed_domain_list(self) -> list[str]:
+        return [item.strip().lower() for item in self.crawler_allowed_domains.split(",") if item.strip()]
 
 
 @lru_cache
@@ -63,4 +75,11 @@ def get_settings() -> Settings:
         market_data_cache_seconds=int(os.getenv("MARKET_DATA_CACHE_SECONDS", "10")),
         quote_cache_seconds=int(os.getenv("QUOTE_CACHE_SECONDS", "10")),
         kline_cache_seconds=int(os.getenv("KLINE_CACHE_SECONDS", "300")),
+        enable_public_web_crawler=os.getenv("ENABLE_PUBLIC_WEB_CRAWLER", "false").lower() == "true",
+        crawler_user_agent=os.getenv("CRAWLER_USER_AGENT", "QuantEventAlphaLabTaiwan/0.1 research metadata bot; contact=local-user"),
+        crawler_allowed_domains=os.getenv("CRAWLER_ALLOWED_DOMAINS", "mops.twse.com.tw,openapi.twse.com.tw,www.twse.com.tw,www.tpex.org.tw,finmindtrade.com"),
+        crawler_timeout_ms=int(os.getenv("CRAWLER_TIMEOUT_MS", "8000")),
+        crawler_max_pages_per_run=int(os.getenv("CRAWLER_MAX_PAGES_PER_RUN", "12")),
+        crawler_respect_robots=os.getenv("CRAWLER_RESPECT_ROBOTS", "true").lower() == "true",
+        crawler_min_request_interval_ms=int(os.getenv("CRAWLER_MIN_REQUEST_INTERVAL_MS", "1200")),
     )
