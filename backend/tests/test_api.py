@@ -107,6 +107,29 @@ def test_event_providers_status():
     assert any(row["supportsEvents"] for row in body["data"])
 
 
+def test_quant_analyze_symbol():
+    response = client.get("/quant/analyze/2330?interval=1d&range=1y")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert body["data"]["symbol"] == "2330"
+    assert "quantScore" in body["data"]
+    assert "breakdown" in body["data"]
+    assert "overheatRisk" in body["data"]
+    assert "nextAction" in body["data"]
+
+
+def test_quant_analyze_batch():
+    response = client.get("/quant/analyze?symbols=2330,2382&interval=1d&range=1m")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert "results" in body["data"]
+    assert isinstance(body["data"]["results"], list)
+    assert len(body["data"]["results"]) >= 1
+    assert "warnings" in body["data"]
+
+
 def test_indicators_calculation():
     closes = [float(value) for value in range(1, 31)]
     assert sma(closes, 5)[4] == 3.0
