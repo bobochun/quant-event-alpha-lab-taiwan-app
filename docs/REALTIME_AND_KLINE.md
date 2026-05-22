@@ -1,6 +1,6 @@
-# 即時報價、K 線與事件資料
+# 即時報價、K 線、事件資料與量化分析
 
-本階段新增獨立 FastAPI 後端與前端 `/market` 頁，聚焦最新報價、延遲報價、合法即時報價 adapter 介面、K 線圖顯示，以及 Level 1 / Level 2 事件來源 pipeline。
+本階段新增獨立 FastAPI 後端與前端 `/market` 頁，聚焦最新報價、延遲報價、合法即時報價 adapter 介面、K 線圖顯示、Level 1 / Level 2 事件來源 pipeline，以及 Level 3 後端量化分析層。
 
 ## 即時行情限制
 
@@ -14,6 +14,7 @@
 - 不抓付費外資報告全文
 - 不抓新聞全文
 - 不對 MOPS / 新聞網站做激進爬蟲
+- 量化分數僅供研究排序與風控，不構成投資建議
 
 ## Provider 分層
 
@@ -73,6 +74,40 @@ Backend quote/kline → Imported price snapshot → Demo fallback
 - 事件來源：Official / Imported / Manual / Demo
 - 行情來源：Backend provider / yfinance fallback / Demo fallback
 
+## Level 3：Backend Quant Analysis
+
+後端新增：
+
+```text
+GET /quant/analyze/2330?interval=1d&range=1y
+GET /quant/analyze?symbols=2330,2382,2317&interval=1d&range=1y
+```
+
+後端會使用 K 線資料計算：
+
+- 趨勢分數
+- 動能分數
+- 波動分數
+- RSI 分數
+- MA 結構分數
+- 成交量分數
+- 過熱懲罰
+- 資料品質懲罰
+- 20 日報酬
+- 60 日報酬
+- 20 日年化波動
+- 20 日量比
+- nextAction：觀察 / 建立交易計畫 / 等回測買點 / 避免追高 / 資料不足
+
+前端新增：
+
+```text
+app/lib/quantApi.ts
+app/signal-radar/page.tsx
+```
+
+`/signal-radar` 已從 Coming Soon 改為可用頁面，可輸入多個股票代號，呼叫後端量化 API 批次排序，並可連到 `/market?symbol=` 或 `/trade-plan?symbol=`。
+
 ## FinMind Token
 
 `.env` 或部署環境設定：
@@ -102,6 +137,8 @@ GET /version
 GET /quotes/latest/2330
 GET /quotes/latest?symbols=2330,2382,2317
 GET /kline/2330?interval=1d&range=1y
+GET /quant/analyze/2330?interval=1d&range=1y
+GET /quant/analyze?symbols=2330,2382,2317&interval=1d&range=1y
 GET /events/upcoming?days=30&symbols=2330,2382
 GET /events/providers
 POST /market-data/refresh-quotes
@@ -125,6 +162,24 @@ Event API 回傳會包含：
 - providers
 - sourceNote
 - generatedAt
+
+Quant API 回傳會包含：
+
+- quantScore
+- trendState
+- momentumState
+- overheatRisk
+- dataQuality
+- latestClose
+- ma5 / ma20 / ma60
+- rsi14
+- return20d / return60d
+- volatility20d
+- volumeRatio20d
+- breakdown
+- warnings
+- explanation
+- nextAction
 
 ## K 線支援
 
@@ -190,6 +245,7 @@ npm run dev
 http://localhost:3000/market?symbol=2330
 http://localhost:3000/event-radar
 http://localhost:3000/data-center
+http://localhost:3000/signal-radar
 ```
 
 若後端連不上，前端會顯示明確標示的 Demo / Imported / Manual fallback，不會白屏，也不會宣稱是即時行情或正式事件。
@@ -241,19 +297,37 @@ npm run test:e2e
 
 - `/quotes/latest/2330` 有回應，且包含 `provider` / `dataSource` / `isRealtime` / `delayMinutes`。
 - `/kline/2330?interval=1d&range=1y` 有回應，且 bars 包含 OHLCV、MA5、MA20、MA60、RSI14。
+- `/quant/analyze/2330?interval=1d&range=1y` 有回應，且包含 quantScore、breakdown、overheatRisk、nextAction。
+- `/quant/analyze?symbols=2330,2382&interval=1d&range=1y` 有回應，且 results 依 quantScore 排序。
 - `/events/upcoming?days=30&symbols=2330,2382` 有回應，無 token 時不 crash。
 - `/events/providers` 有回應，能看到 finmind-events / mops-metadata / twse-tpex-official-events 狀態。
 - `/market?symbol=2330` 可顯示報價卡與 K 線圖。
+- `/signal-radar` 可執行後端量化掃描。
 - `/event-radar` 可分開顯示事件來源與行情來源。
 - `/data-center` 可顯示事件 provider、行情 provider 與 CSV 匯入狀態。
 - 不支援的 interval 不 crash，應 fallback 或顯示清楚錯誤。
 - 免費、官方、fallback、demo 資料都不可標示成正式即時行情或完整正式事件源。
 
+## 仍缺的高階量化能力
+
+1. 真正的事件研究回測：事件日前後 abnormal return、hit rate、mean/median return、drawdown。
+2. 因子資料庫：持久化每日 quantScore / factor exposure，才能看分數穩定度。
+3. 橫截面 ranking：全市場分位數，不只是輸入清單排序。
+4. 產業 / 題材相對強弱：同族群 rank 與輪動矩陣。
+5. 交易成本模型：手續費、稅、滑價、流動性折價。
+6. Portfolio optimizer：依相關性、波動、事件日期、題材集中度調整部位。
+7. Walk-forward validation：避免參數 overfit。
+8. Data quality monitor：每個 provider 的缺值率、延遲、欄位漂移。
+9. Job persistence：量化掃描與事件 refresh 寫入資料庫，不只 request-time 計算。
+10. 真實官方事件 adapter：注意股 / 處置股 / 除權息 / 法說會 metadata。
+
 ## Codex 下一階段建議
 
-1. 補 `attentionStock` / `dispositionStock` 官方 adapter。
-2. 補除權息官方 adapter，產生 `exDividend` events。
-3. 補 MOPS 法說會 metadata adapter，但避免抓全文與高頻爬蟲。
-4. 補 FinMind dataset 欄位 normalizer，避免不同欄位名稱造成空事件。
-5. 增加 `/events/refresh` job，將事件 provider 結果寫入資料庫。
-6. Data Center 增加每個事件 dataset 的 last success / last error / records fetched。
+1. 跑完整測試並修 bug：`pytest`, `compileall`, `npm run typecheck`, `npm run lint`, `npm run build`。
+2. 補 `attentionStock` / `dispositionStock` 官方 adapter。
+3. 補除權息官方 adapter，產生 `exDividend` events。
+4. 補 MOPS 法說會 metadata adapter，但避免抓全文與高頻爬蟲。
+5. 補 FinMind dataset 欄位 normalizer，避免不同欄位名稱造成空事件。
+6. 增加 `/events/refresh` job，將事件 provider 結果寫入資料庫。
+7. 增加 `/quant/scan/refresh` job，將每日量化分數寫入資料庫。
+8. Data Center 增加每個事件 dataset / quant job 的 last success / last error / records fetched。
