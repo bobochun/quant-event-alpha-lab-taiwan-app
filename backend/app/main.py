@@ -4,6 +4,7 @@ import time
 
 from fastapi import FastAPI
 
+from app.api.routes_ai import router as ai_router
 from app.api.routes_events import router as events_router
 from app.api.routes_kline import router as kline_router
 from app.api.routes_market_data import router as market_data_router
@@ -29,6 +30,7 @@ app.include_router(quotes_router)
 app.include_router(kline_router)
 app.include_router(quant_router)
 app.include_router(research_router)
+app.include_router(ai_router)
 app.include_router(source_digest_router)
 app.include_router(market_data_router)
 app.include_router(sources_router)
@@ -93,6 +95,9 @@ async def diagnostics():
                 "yfinanceFallback": settings.enable_yfinance,
                 "demoFallback": settings.enable_demo_fallback,
                 "publicSourceDigest": settings.enable_public_web_crawler,
+                "aiQuant": settings.enable_ai_quant,
+                "aiHasApiKey": bool(settings.openai_api_key.strip()),
+                "aiScoreInAlpha": settings.enable_ai_score_in_alpha,
             },
             "cache": {
                 "quoteCacheSeconds": settings.quote_cache_seconds,
@@ -116,6 +121,8 @@ async def diagnostics():
                 "eventStudy": "/research/event-study",
                 "portfolioOptimizer": "/research/portfolio-optimize",
                 "sourceDigest": "/source-digest/collect",
+                "aiStatus": "/ai/status",
+                "aiSourceDigest": "/ai/analyze-source-digest",
             },
         },
         "Demo",
