@@ -9,7 +9,8 @@ import { KLineChart } from "../components/market/KLineChart";
 import { QuoteCard } from "../components/market/QuoteCard";
 import { RangeSelector } from "../components/market/RangeSelector";
 import { SymbolSearch } from "../components/market/SymbolSearch";
-import { fetchKLine, fetchLatestQuote, supportsRealtimePolling, type KLinePayload, type MarketInterval, type MarketRange, type QuoteData } from "../lib/marketApi";
+import { DataSourceBadge, RiskBadge, ScoreBadge, WarningList } from "../components/ui";
+import { fetchKLine, fetchLatestQuote, fetchMarketSummary, supportsRealtimePolling, type KLinePayload, type MarketInterval, type MarketRange, type MarketSummaryPayload, type QuoteData } from "../lib/marketApi";
 
 export default function MarketPage() {
   return (
@@ -27,6 +28,7 @@ function MarketPageContent() {
   const [interval, setInterval] = useState<MarketInterval>("1d");
   const [quote, setQuote] = useState<QuoteData | null>(null);
   const [kline, setKline] = useState<KLinePayload | null>(null);
+  const [summary, setSummary] = useState<MarketSummaryPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [countdown, setCountdown] = useState(30);
@@ -35,12 +37,14 @@ function MarketPageContent() {
 
   async function load(nextSymbol = symbol, nextInterval = interval, nextRange = range) {
     setLoading(true);
-    const [quoteResult, klineResult] = await Promise.all([
+    const [quoteResult, klineResult, summaryResult] = await Promise.all([
       fetchLatestQuote(nextSymbol),
-      fetchKLine(nextSymbol, nextInterval, nextRange)
+      fetchKLine(nextSymbol, nextInterval, nextRange),
+      fetchMarketSummary(nextSymbol)
     ]);
     setQuote(quoteResult);
     setKline(klineResult);
+    setSummary(summaryResult);
     setLoading(false);
     setCountdown(30);
   }
@@ -90,9 +94,9 @@ function MarketPageContent() {
     <div className="space-y-4">
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <p className="text-xs font-semibold tracking-[0.18em] text-emerald-700">MARKET DATA</p>
-        <h1 className="mt-2 text-2xl font-semibold text-slate-950">即時報價與 K 線</h1>
+        <h1 className="mt-2 text-2xl font-semibold text-slate-950">即時報價、K 線與個股研究摘要</h1>
         <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">
-          輸入台股代號查詢最新報價與 K 線。免費、官方或 fallback 資料會明確標示即時性、延遲與來源，不會把非即時資料包裝成正式即時行情。
+          輸入台股代號查詢最新報價、K 線、技術摘要、外資 / 投信 / 自營商籌碼與個股重要資訊。免費、官方或 fallback 資料會明確標示即時性、延遲與來源，不會把非即時資料包裝成正式即時行情。
         </p>
       </section>
 
@@ -112,6 +116,7 @@ function MarketPageContent() {
 
       <DataSourceNotice quote={quote} kline={kline} />
       <QuoteCard quote={quote} loading={loading} />
+      <MarketSummaryPanel summary={summary} loading={loading} />
 
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <div className="grid gap-4 lg:grid-cols-2">
@@ -131,10 +136,110 @@ function MarketPageContent() {
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap gap-2">
           <Link className="rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700" href={`/event-radar?symbol=${symbol}`}>回事件雷達</Link>
+          <Link className="rounded-md border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm font-semibold text-cyan-800" href={`/signal-radar?symbol=${symbol}`}>量化模式掃描</Link>
           <Link className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white" href={`/trade-plan?symbol=${symbol}&from=market`}>建立交易計畫</Link>
         </div>
         <p className="mt-3 text-xs leading-5 text-amber-700">帶入最新價只能作為研究參考，請自行確認價格、流動性與風險，不代表建議進場。</p>
       </section>
     </div>
   );
+}
+
+function MarketSummaryPanel({ summary, loading }: { summary: MarketSummaryPayload | null; loading: boolean }) {
+  if (loading && !summary) {
+    return <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm text-sm text-slate-500">正在載入個股研究摘要...</section>;
+  }
+  if (!summary) return null;
+  const flow = summary.institutionalFlow;
+  const technical = summary.technical;
+  return (
+    <section className="space-y-4 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold tracking-[0.18em] text-cyan-700">STOCK RESEARCH SNAPSHOT</p>
+          <h2 className="mt-1 text-xl font-semibold text-slate-950">{summary.symbol} {summary.name}</h2>
+          <p className="mt-1 text-sm text-slate-500">{summary.profile.market} / {summary.profile.industry ?? "Unknown"} / {summary.profile.assetType}</p>
+        </div>
+        <DataSourceBadge source={normalizeDataSource(summary.profile.dataSource)} />
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-3">
+        <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+          <div className="text-xs font-semibold text-slate-500">個股重要資訊</div>
+          <div className="mt-2 flex flex-wrap gap-2">{summary.profile.themes.map((theme) => <span key={theme} className="rounded bg-white px-2 py-1 text-xs text-slate-700">{theme}</span>)}</div>
+          <p className="mt-3 text-xs leading-5 text-slate-500">{summary.profile.marketCapNote}</p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">{summary.profile.liquidityNote}</p>
+        </div>
+
+        <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+          <div className="text-xs font-semibold text-slate-500">技術摘要</div>
+          {technical ? <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-700">
+            <Metric label="趨勢" value={translateState(technical.trendState)} />
+            <Metric label="動能" value={translateState(technical.momentumState)} />
+            <Metric label="RSI14" value={formatNumber(technical.rsi14)} />
+            <Metric label="量比20D" value={formatNumber(technical.volumeRatio20d)} />
+            <Metric label="20日報酬" value={formatPct(technical.return20d)} />
+            <Metric label="60日報酬" value={formatPct(technical.return60d)} />
+          </div> : <p className="mt-2 text-xs text-slate-500">尚無技術摘要。</p>}
+          {technical ? <div className="mt-3"><RiskBadge level={technical.overheatRisk} /></div> : null}
+        </div>
+
+        <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+          <div className="flex items-center justify-between gap-2"><div className="text-xs font-semibold text-slate-500">外資 / 投信 / 自營商</div>{flow ? <DataSourceBadge source={normalizeDataSource(flow.dataSource)} /> : null}</div>
+          {flow ? <div className="mt-2 space-y-2 text-xs text-slate-700">
+            <div className="flex items-center justify-between"><span>法人確認分數</span><ScoreBadge score={flow.flowConfirmationScore} /></div>
+            <Metric label="外資買賣超" value={formatShares(flow.foreignNetBuyShares)} />
+            <Metric label="投信買賣超" value={formatShares(flow.investmentTrustNetBuyShares)} />
+            <Metric label="自營商買賣超" value={formatShares(flow.dealerNetBuyShares)} />
+            <Metric label="合計" value={formatShares(flow.totalInstitutionalNetBuyShares)} />
+            <Metric label="偏向" value={translateFlow(flow.flowBias)} />
+          </div> : <p className="mt-2 text-xs text-slate-500">尚無法人籌碼。</p>}
+        </div>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        <div className="rounded-md border border-emerald-100 bg-emerald-50 p-3">
+          <div className="text-xs font-semibold text-emerald-800">Key Points</div>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-xs leading-5 text-emerald-900">{summary.keyPoints.map((item) => <li key={item}>{item}</li>)}</ul>
+        </div>
+        <div className="rounded-md border border-amber-100 bg-amber-50 p-3">
+          <div className="text-xs font-semibold text-amber-800">Risk Flags</div>
+          {summary.riskFlags.length ? <ul className="mt-2 list-disc space-y-1 pl-5 text-xs leading-5 text-amber-900">{summary.riskFlags.map((item) => <li key={item}>{item}</li>)}</ul> : <p className="mt-2 text-xs text-amber-900">目前沒有明顯風險旗標，但仍需交易計畫與停損。</p>}
+        </div>
+      </div>
+      <WarningList warnings={[...(technical?.warnings ?? []), ...(flow?.warnings ?? [])]} />
+      <p className="text-xs leading-5 text-slate-500">{summary.sourceNote}</p>
+    </section>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return <div className="rounded border border-slate-200 bg-white px-2 py-1"><div className="text-[10px] text-slate-500">{label}</div><div className="font-semibold text-slate-900">{value}</div></div>;
+}
+
+function formatNumber(value?: number | null): string {
+  return value === null || value === undefined ? "-" : value.toFixed(2);
+}
+
+function formatPct(value?: number | null): string {
+  return value === null || value === undefined ? "-" : `${value.toFixed(2)}%`;
+}
+
+function formatShares(value: number): string {
+  const sign = value > 0 ? "+" : "";
+  if (Math.abs(value) >= 1000000) return `${sign}${(value / 1000000).toFixed(2)}M 股`;
+  if (Math.abs(value) >= 1000) return `${sign}${(value / 1000).toFixed(1)}K 股`;
+  return `${sign}${value} 股`;
+}
+
+function translateState(value: string): string {
+  return value === "bullish" ? "多頭" : value === "bearish" ? "空頭" : value === "sideways" ? "盤整" : value === "warming" ? "升溫" : value === "hot" ? "過熱" : value === "cooling" ? "降溫" : value === "weak" ? "偏弱" : value;
+}
+
+function translateFlow(value: string): string {
+  return value === "accumulation" ? "偏累積" : value === "distribution" ? "偏賣壓" : value === "mixed" ? "分歧" : value === "neutral" ? "中性" : "未知";
+}
+
+function normalizeDataSource(value: string): "Real" | "Official" | "Cached" | "Manual" | "Imported" | "Estimated" | "Demo" | "Missing" | "Error" {
+  return ["Real", "Official", "Cached", "Manual", "Imported", "Estimated", "Demo", "Missing", "Error"].includes(value) ? value as ReturnType<typeof normalizeDataSource> : "Estimated";
 }
