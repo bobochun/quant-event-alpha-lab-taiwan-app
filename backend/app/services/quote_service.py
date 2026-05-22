@@ -13,12 +13,14 @@ from app.data_sources.provider_registry import ProviderRegistry
 from app.models.market import QuoteLatestModel
 from app.schemas.market import ProviderKey, QuoteData
 
+_SHARED_QUOTE_CACHE: dict[tuple[str, str], tuple[float, QuoteData]] = {}
+
 
 class QuoteService:
     def __init__(self, registry: ProviderRegistry | None = None, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
         self.registry = registry or ProviderRegistry(self.settings)
-        self._cache: dict[tuple[str, str], tuple[float, QuoteData]] = {}
+        self._cache = _SHARED_QUOTE_CACHE
 
     async def latest(self, symbol: str, provider: ProviderKey = "auto", db: Session | None = None) -> QuoteData:
         normalized = symbol.strip()
@@ -26,7 +28,7 @@ class QuoteService:
         for candidate in self.registry.quote_priority(provider):
             key = (candidate.provider_name, normalized)
             cached = self._cache.get(key)
-            if cached and (time.time() - cached[0]) < self.settings.market_data_cache_seconds:
+            if cached and (time.time() - cached[0]) < self.settings.quote_cache_seconds:
                 return cached[1]
             try:
                 quote = await candidate.get_latest_quote(normalized)
@@ -42,6 +44,7 @@ class QuoteService:
         quote = demo_quote(normalized)
         if errors:
             quote.source_note = "所有正式 provider 不可用，已使用示範 fallback。原因：" + "；".join(errors[:3])
+        self._cache[("demo", normalized)] = (time.time(), quote)
         if db:
             self._upsert_quote(db, quote)
         return quote
@@ -96,6 +99,10 @@ class QuoteService:
                 fetched_at=fetched_at,
             ))
         db.commit()
+
+
+def clear_quote_cache() -> None:
+    _SHARED_QUOTE_CACHE.clear()
 
 
 def _parse_dt(value: str) -> datetime:
