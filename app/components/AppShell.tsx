@@ -16,12 +16,14 @@ import {
   Home,
   LineChart,
   Radar,
+  RefreshCw,
   Settings,
   ShieldAlert,
   WalletCards,
   Workflow
 } from "lucide-react";
 import type { ReactNode } from "react";
+import { useAutoRefresh } from "./AutoRefreshProvider";
 
 const nav = [
   ["/", "每日主控台", Home, "3 分鐘工作流"],
@@ -100,6 +102,7 @@ export function Sidebar({ pathname }: { pathname: string }) {
 }
 
 export function TopBar() {
+  const autoRefresh = useAutoRefresh();
   return (
     <header className="sticky top-0 z-20 border-b border-slate-800/80 bg-slate-950/78 px-4 py-3 backdrop-blur-xl sm:px-6 lg:px-8">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
@@ -110,6 +113,7 @@ export function TopBar() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
+          <AutoRefreshPill autoRefresh={autoRefresh} />
           <StatusPill tone="amber">研究資料 / 非投資建議</StatusPill>
           <StatusPill tone="cyan">Asia/Taipei</StatusPill>
           <StatusPill tone="emerald">No broker API</StatusPill>
@@ -117,6 +121,23 @@ export function TopBar() {
         </div>
       </div>
     </header>
+  );
+}
+
+function AutoRefreshPill({ autoRefresh }: { autoRefresh: ReturnType<typeof useAutoRefresh> }) {
+  const label = autoRefresh.running ? "更新中" : autoRefresh.enabled ? "自動更新" : "自動更新關閉";
+  const last = autoRefresh.lastRunAt ? new Date(autoRefresh.lastRunAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" }) : "尚未更新";
+  return (
+    <button
+      className="inline-flex items-center gap-2 rounded-full border border-cyan-400/30 bg-cyan-400/10 px-2.5 py-1 text-cyan-200 disabled:opacity-60"
+      onClick={() => void autoRefresh.refreshNow(true)}
+      disabled={!autoRefresh.enabled || autoRefresh.running}
+      title="點擊立即刷新一次：報價、法人籌碼、量化掃描與來源摘要"
+    >
+      <RefreshCw className={`h-3.5 w-3.5 ${autoRefresh.running ? "animate-spin" : ""}`} />
+      <span>{label}</span>
+      <span className="text-cyan-100/70">{last}</span>
+    </button>
   );
 }
 
