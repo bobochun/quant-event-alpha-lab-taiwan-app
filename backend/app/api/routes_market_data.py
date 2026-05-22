@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app.ai.extractors import AIQuantService
+from app.ai.schemas import AISourceDigestInput
 from app.db.session import get_db
 from app.schemas.common import ok_response
 from app.schemas.market import JobRunRequest, RefreshKLineRequest, RefreshQuotesRequest
@@ -56,4 +58,7 @@ async def run_job(request: JobRunRequest, db: Session = Depends(get_db)):
         flow_service = InstitutionalFlowService()
         rows = [await flow_service.latest_flow(symbol) for symbol in symbols]
         return ok_response({"jobName": request.job_name, "recordsProcessed": len(rows), "flows": [row.model_dump(by_alias=True) for row in rows]}, rows[0].data_source if rows else "Missing", "法人籌碼資料已刷新；若為 Demo fallback，請勿視為真實外資/投信資料。")
-    return ok_response({"jobName": request.job_name, "recordsProcessed": 0}, "Missing", "未知 job_name；支援 refresh_latest_quotes、refresh_daily_kline、refresh_factor_scores、data_quality_check、theme_strength_scan、source_digest_collect、refresh_institutional_flow。")
+    if request.job_name in {"ai_source_digest_analysis", "ai_daily_factor_refresh"}:
+        payload = await AIQuantService().analyze_source_digest(AISourceDigestInput(symbols=symbols, themes=[], maxItems=8), db)
+        return ok_response({"jobName": request.job_name, "recordsProcessed": len(payload.factors), "factors": [row.model_dump(by_alias=True) for row in payload.factors], "warnings": payload.warnings}, "Estimated", "AI source digest analysis completed. Uses OpenAI API only when configured; otherwise rule fallback is used.")
+    return ok_response({"jobName": request.job_name, "recordsProcessed": 0}, "Missing", "未知 job_name；支援 refresh_latest_quotes、refresh_daily_kline、refresh_factor_scores、data_quality_check、theme_strength_scan、source_digest_collect、refresh_institutional_flow、ai_source_digest_analysis。")
