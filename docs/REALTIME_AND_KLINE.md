@@ -1,6 +1,6 @@
-# 即時報價與 K 線資料
+# 即時報價、K 線與事件資料
 
-本階段新增獨立 FastAPI 後端與前端 `/market` 頁，聚焦最新報價、延遲報價、合法即時報價 adapter 介面，以及 K 線圖顯示。
+本階段新增獨立 FastAPI 後端與前端 `/market` 頁，聚焦最新報價、延遲報價、合法即時報價 adapter 介面、K 線圖顯示，以及 Level 1 / Level 2 事件來源 pipeline。
 
 ## 即時行情限制
 
@@ -13,6 +13,7 @@
 - 不把免費資料假裝成即時
 - 不抓付費外資報告全文
 - 不抓新聞全文
+- 不對 MOPS / 新聞網站做激進爬蟲
 
 ## Provider 分層
 
@@ -27,6 +28,50 @@ Licensed Realtime > FinMind > Official > Imported / Manual > yfinance Research F
 - TWSE / TPEx Official Provider：官方公開資料，標示為盤後或延遲，不假裝即時
 - yfinance Research Fallback：非官方研究資料，可能延遲或不穩定
 - Demo Fallback：provider 不可用時讓 UI 可操作，明確標示示範資料
+
+## 事件資料 Level 1 / Level 2
+
+### Level 1：Backend event provider API
+
+後端新增：
+
+```text
+GET /events/upcoming?days=30&symbols=2330,2382
+GET /events/providers
+```
+
+目前實作：
+
+- `finmind-events`：若 `ENABLE_FINMIND=true` 且 `FINMIND_API_TOKEN` 存在，嘗試用 FinMind dataset 產生月營收 / 股利 metadata 事件。
+- `mops-metadata`：保守 placeholder，顯示 MOPS 可作事件 metadata 來源，但本階段不做激進爬蟲。
+- `twse-tpex-official-events`：保守 placeholder，顯示除權息、注意股、處置股等可接官方資料，但本階段先以 provider status 呈現。
+
+沒有 token 或 provider 沒有回資料時，`events` 會是空陣列，並回傳清楚的 `sourceNote`。這是正確行為，不應改成假資料。
+
+### Level 2：Frontend backend-first event merge
+
+前端新增：
+
+```text
+app/lib/backendEventsApi.ts
+```
+
+首頁 `/` 與 `/event-radar` 事件來源順序：
+
+```text
+Backend events → Imported events → Manual events → Demo fallback
+```
+
+行情與技術面來源順序：
+
+```text
+Backend quote/kline → Imported price snapshot → Demo fallback
+```
+
+前端必須分開顯示：
+
+- 事件來源：Official / Imported / Manual / Demo
+- 行情來源：Backend provider / yfinance fallback / Demo fallback
 
 ## FinMind Token
 
@@ -57,13 +102,15 @@ GET /version
 GET /quotes/latest/2330
 GET /quotes/latest?symbols=2330,2382,2317
 GET /kline/2330?interval=1d&range=1y
+GET /events/upcoming?days=30&symbols=2330,2382
+GET /events/providers
 POST /market-data/refresh-quotes
 POST /market-data/refresh-kline
 GET /market-data/providers
 GET /market-data/source-health
 ```
 
-API 回傳會包含：
+Quote / Kline API 回傳會包含：
 
 - provider
 - dataSource
@@ -71,6 +118,13 @@ API 回傳會包含：
 - delayMinutes
 - licenseNote
 - fetchedAt
+
+Event API 回傳會包含：
+
+- events
+- providers
+- sourceNote
+- generatedAt
 
 ## K 線支援
 
@@ -134,9 +188,11 @@ npm run dev
 
 ```text
 http://localhost:3000/market?symbol=2330
+http://localhost:3000/event-radar
+http://localhost:3000/data-center
 ```
 
-若後端連不上，前端會顯示明確標示的 Demo fallback，不會白屏，也不會宣稱是即時行情。
+若後端連不上，前端會顯示明確標示的 Demo / Imported / Manual fallback，不會白屏，也不會宣稱是即時行情或正式事件。
 
 ## 部署建議
 
@@ -185,6 +241,19 @@ npm run test:e2e
 
 - `/quotes/latest/2330` 有回應，且包含 `provider` / `dataSource` / `isRealtime` / `delayMinutes`。
 - `/kline/2330?interval=1d&range=1y` 有回應，且 bars 包含 OHLCV、MA5、MA20、MA60、RSI14。
+- `/events/upcoming?days=30&symbols=2330,2382` 有回應，無 token 時不 crash。
+- `/events/providers` 有回應，能看到 finmind-events / mops-metadata / twse-tpex-official-events 狀態。
 - `/market?symbol=2330` 可顯示報價卡與 K 線圖。
+- `/event-radar` 可分開顯示事件來源與行情來源。
+- `/data-center` 可顯示事件 provider、行情 provider 與 CSV 匯入狀態。
 - 不支援的 interval 不 crash，應 fallback 或顯示清楚錯誤。
-- 免費、官方、fallback、demo 資料都不可標示成正式即時行情。
+- 免費、官方、fallback、demo 資料都不可標示成正式即時行情或完整正式事件源。
+
+## Codex 下一階段建議
+
+1. 補 `attentionStock` / `dispositionStock` 官方 adapter。
+2. 補除權息官方 adapter，產生 `exDividend` events。
+3. 補 MOPS 法說會 metadata adapter，但避免抓全文與高頻爬蟲。
+4. 補 FinMind dataset 欄位 normalizer，避免不同欄位名稱造成空事件。
+5. 增加 `/events/refresh` job，將事件 provider 結果寫入資料庫。
+6. Data Center 增加每個事件 dataset 的 last success / last error / records fetched。
