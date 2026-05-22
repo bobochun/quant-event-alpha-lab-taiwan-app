@@ -1,4 +1,4 @@
-import type { AlphaEngineResult, BackupPayload, Event, JournalEntry, Portfolio, ThemeHeatResult, TradePlan } from "./types";
+import type { AlphaEngineResult, BackupPayload, DataSource, Event, JournalEntry, Portfolio, ThemeHeatResult, TradePlan } from "./types";
 import { tradePlanToMarkdown } from "./tradePlan";
 import { formatDataSource, formatDateTW, formatNextAction, formatRiskLevel, formatStrategy, localizeTheme } from "./utils";
 
@@ -33,6 +33,7 @@ export function exportWeeklyReportMarkdown(params: {
   portfolio: Portfolio;
   dataQualityNote: string;
   alphaRows?: AlphaEngineResult[];
+  dataSourceSummary?: Partial<Record<DataSource, number>> & { estimatedFields?: number; missingItems?: string[]; lastUpdated?: string };
 }): string {
   const alphaRows = params.alphaRows ?? [];
   const generatedAt = new Date().toISOString();
@@ -42,14 +43,16 @@ export function exportWeeklyReportMarkdown(params: {
   const overheated = alphaRows.filter((row) => row.pricedInRisk === "critical" || row.overheatRisk === "high" || row.overheatRisk === "critical").slice(0, 10);
   const plannedIds = new Set(params.plans.map((plan) => plan.relatedEventId).filter(Boolean));
   const unplanned = params.events.filter((event) => !plannedIds.has(event.id)).slice(0, 10);
-  const dataSources = Array.from(new Set(params.events.map((event) => formatDataSource(event.dataSource)))).join(" / ") || "無資料";
+  const counts = countSources(params.events);
+  const sourceSummary = { ...counts, ...params.dataSourceSummary };
+  const usesDemo = (sourceSummary.Demo ?? 0) > 0;
 
   return `# 每週事件 Alpha 報告
 
 generatedAt: ${generatedAt}
-dataSource summary: ${dataSources}
 
 本報告僅供個人研究、策略模擬、事件追蹤與風險控管，不構成投資建議。
+${usesDemo ? "\n> 本報告部分內容使用示範資料補齊，不應直接作為交易依據。\n" : ""}
 
 ## 本週摘要
 - 未來 7 天高催化事件：${highCatalyst.length}
@@ -58,6 +61,15 @@ dataSource summary: ${dataSources}
 - 過熱暫避名單：${overheated.length}
 - 已建立交易計畫：${params.plans.length}
 
+## 資料來源摘要
+- 官方資料筆數：${sourceSummary.Official ?? 0}
+- 匯入資料筆數：${sourceSummary.Imported ?? 0}
+- 手動資料筆數：${sourceSummary.Manual ?? 0}
+- 示範資料筆數：${sourceSummary.Demo ?? 0}
+- 估算欄位：${sourceSummary.estimatedFields ?? 0}
+- 缺資料提醒：${sourceSummary.missingItems?.join("、") || "無"}
+- 最後更新時間：${sourceSummary.lastUpdated ?? generatedAt}
+
 ## 未來 7 天高催化事件
 ${formatRows(highCatalyst)}
 
@@ -65,16 +77,16 @@ ${formatRows(highCatalyst)}
 ${formatRows(unpriced)}
 
 ## 待確認候選
-${formatRows(confirm, "催化強但已反應風險偏高，可建立觀察計畫但不追價。")}
+${formatRows(confirm, "催化分數高，但已反應風險偏高；可建立觀察計畫，不追價。")}
 
-## 過熱暫避名單
+## 已過熱 / 避免追高標的
 ${formatRows(overheated, "避免追高，等待回測或新的確認訊號。")}
 
 ## 題材熱度排行
 ${params.themeHeat.slice(0, 8).map((theme, index) => `${index + 1}. ${localizeTheme(theme.theme)}：${Math.round(theme.heatScore)} 分，${theme.explanation}`).join("\n") || "- 無資料"}
 
 ## 已建立交易計畫
-${params.plans.map((plan) => `- ${plan.symbol} / ${plan.name}：${formatStrategy(plan.strategy)}，部位 ${plan.positionPct}%，最大風險 ${Math.round(plan.maxRiskAmount).toLocaleString()}`).join("\n") || "- 無"}
+${params.plans.map((plan) => `- ${plan.symbol} / ${plan.name}：${formatStrategy(plan.strategy)}，部位 ${plan.positionPct}%，最大風險 ${Math.round(plan.maxRiskAmount).toLocaleString("zh-TW")}`).join("\n") || "- 無"}
 
 ## 尚未建立交易計畫
 ${unplanned.map((event) => `- ${event.symbol} / ${event.name}：${event.eventTitle}`).join("\n") || "- 無"}
@@ -86,15 +98,20 @@ ${params.portfolio.positions.map((position) => `- ${position.symbol} / ${positio
 ${params.dataQualityNote}
 
 ## 下週待辦事項
-- 先處理高催化但尚未建立交易計畫的標的。
+- 檢查高催化但尚未建立計畫的事件。
 - 對待確認候選只建立觀察計畫，不追價。
-- 檢查過熱暫避名單是否出現健康回測。
-- 匯出 JSON 備份，避免 localStorage 資料遺失。
-`;
+- 匯出 JSON 備份，避免 localStorage 資料遺失。`;
+}
+
+function countSources(events: Event[]): Partial<Record<DataSource, number>> {
+  return events.reduce<Partial<Record<DataSource, number>>>((acc, event) => {
+    acc[event.dataSource] = (acc[event.dataSource] ?? 0) + 1;
+    return acc;
+  }, {});
 }
 
 function formatRows(rows: AlphaEngineResult[], note?: string): string {
-  return rows.map((row) => `- ${formatDateTW(row.event.eventDate)} ${row.event.symbol} / ${row.event.name}：催化 ${Math.round(row.catalyst.totalCatalystScore)}，Alpha ${Math.round(row.alpha.combinedAlphaScore)}，已反應 ${formatRiskLevel(row.pricedInRisk)}，下一步：${formatNextAction(row.alpha.nextAction)}${note ? `。${note}` : ""}`).join("\n") || "- 無";
+  return rows.map((row) => `- ${formatDateTW(row.event.eventDate)} ${row.event.symbol} / ${row.event.name}：催化 ${Math.round(row.catalyst.totalCatalystScore)}，Alpha ${Math.round(row.alpha.combinedAlphaScore)}，已反應 ${formatRiskLevel(row.pricedInRisk)}，下一步 ${formatNextAction(row.alpha.nextAction)}${note ? `。${note}` : ""}`).join("\n") || "- 無";
 }
 
 export function exportFullBackupJson(payload: BackupPayload): string {

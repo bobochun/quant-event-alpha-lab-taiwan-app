@@ -20,3 +20,22 @@
 18. 從 `/event-radar` 點「建立交易計畫」，確認 `/trade-plan` 自動帶入股票、事件、日期與分數摘要。
 19. 在 `/settings` 勾選 / 取消首頁 Widget，回首頁確認顯示狀態改變。
 20. 參照 `docs/PR_REVIEW_CHECKLIST.md` 檢查 PR preview。
+## Official Data Source / Hybrid Mode
+
+- 開啟 `/data-center`，確認 TWSE OpenAPI、TPEx OpenAPI、MOPS、CSV 匯入、Demo Data 狀態有顯示。
+- 點「刷新全部可用官方資料」，官方 fetch 失敗時應顯示 degraded/error，不可白屏。
+- 匯入 `price_snapshot.csv` 後回到 `/event-radar`，確認重新計分摘要的匯入股價筆數增加。
+- 匯入 `institutional_flow.csv` 後確認法人籌碼筆數增加。
+- 匯入 `market_warnings.csv` 後確認風險警示筆數增加，事件列風險會提高。
+- 到 `/settings` 切換 Demo only / Hybrid / Real / Imported only，回 `/event-radar` 確認資料模式可用。
+
+## Playwright
+
+第一次在本機跑測試：
+
+```bash
+npm run test:e2e:install
+npm run test:e2e
+```
+
+若環境無法下載 browser，先確認 `npm run typecheck` 與 `npm run build` 通過，並在 PR 說明中記錄原因。

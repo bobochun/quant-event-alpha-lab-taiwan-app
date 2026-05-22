@@ -1,78 +1,101 @@
-# 資料來源
+# 資料來源與導入策略
 
-MVP 預設使用示範資料。除非使用者手動輸入或匯入 JSON，否則資料都不是即時市場資料。
+本專案採 Vercel-first、無必要資料庫架構。資料優先順序為：
 
-## 資料來源狀態
+Manual > Imported > Official > Demo
 
-- Real：真實
-- Cached：快取
-- Manual：手動
-- Imported：匯入
-- Estimated：估算
-- Demo：示範
-- Missing：缺資料
+## TWSE OpenAPI
 
-## 示範資料標示
-
-每筆示範資料都包含：
-
-```json
-{
-  "dataSource": "Demo",
-  "sourceNote": "示範資料，不是真實即時市場資料。"
-}
-```
-
-## 資料類型
-
-- 股價資料
-- 成交量資料
-- 法人籌碼
-- 月營收
-- 財報
-- 除權息
-- 法說會
-- ETF 成分調整
-- 外資報告 metadata
-- 股東會紀念品
-- 大戶持股變化
+用途：
+- 上市股票 / ETF 基本資料
+- 上市收盤或 price snapshot
+- 三大法人或市場法人資料
 - 注意股 / 處置股
-- 題材新聞
-- 市場狀態
-- Benchmark
 
-## 未來資料規劃
+目前實作：
+- `app/lib/dataSources/twse.ts`
+- 可設定 base URL：`TWSE_OPENAPI_BASE_URL`
+- fetch timeout：`OFFICIAL_DATA_TIMEOUT_MS`
+- revalidate：`OFFICIAL_DATA_REVALIDATE_SECONDS`
+- 失敗時回傳 `degraded` / `error`，不讓 UI 白屏
 
-可優先支援公開資料或使用者手動匯入，不抓付費報告全文，不侵犯新聞版權，不接券商 API，不做自動下單。
+目前支援資料集：
+- `securityMaster`
+- `priceSnapshot`
+- `institutionalFlow`
+- `marketWarnings`
 
-## 真實資料源規劃
+未支援：
+- 長期歷史行情
+- 即時行情
+- 需要登入或付費資料
 
-### 1. 官方資料
+## TPEx OpenAPI
 
-- TWSE：上市股價、成交量、注意股、除權息等公開資料。
-- TPEx：上櫃股價、成交量、注意股、處置股等公開資料。
-- MOPS 公開資訊觀測站：月營收、財報、法說會、重大訊息。
-- ETF 公告：成分股新增、刪除、權重調整、生效日。
-- 法說會公告：日期、時間、公司、來源連結。
+用途：
+- 上櫃股票基本資料
+- 上櫃 price snapshot
+- 上櫃法人 / 市場統計資料
+- 上櫃注意股 / 處置股
 
-### 2. 使用者手動匯入
+目前實作：
+- `app/lib/dataSources/tpex.ts`
+- TPEx 各資料集路徑可能因版本調整，因此 adapter 使用可調 endpoint 與安全 fallback
+- 若端點失敗，只會更新 source health，不會阻斷頁面
 
-- CSV：事件、股價快照、法人籌碼、月營收、財報、除權息、注意 / 處置股、題材新聞 metadata、ETF 調整、大戶持股。
-- JSON backup：完整搬移 localStorage 使用者資料。
+## MOPS / 公開資訊觀測站
 
-### 3. 新聞與外資報告 metadata
+目前只做：
+- data source status placeholder
+- metadata link
+- CSV import mapping
+- 未來 connector 架構
 
-- 只存 metadata，例如標題、日期、來源、相關股票、相關題材與來源 URL。
-- 不存付費外資報告全文。
-- 不抓新聞全文。
-- 避免版權風險。
+第一版不做激進爬蟲，不抓完整頁面內容，不假裝有穩定 JSON API。月營收、財報、除權息、法說會、重大訊息可先用 CSV 匯入或 metadata link 補齊。
 
-### 4. 未來可做
+## CSV Import
 
-- API connector
+支援模板：
+- `events.csv`
+- `price_snapshot.csv`
+- `institutional_flow.csv`
+- `monthly_revenue.csv`
+- `earnings.csv`
+- `dividends.csv`
+- `market_warnings.csv`
+- `theme_news.csv`
+- `etf_rebalance.csv`
+- `major_holder_changes.csv`
+
+Validation：
+- 必填欄位缺少
+- 日期格式錯誤
+- 數字欄位錯誤
+- eventType / warningType / action / holderTier enum 錯誤
+
+匯入後：
+- `price_snapshot` 會影響 technical / overheat / priced-in / relative strength
+- `institutional_flow` 會影響 flow confirmation
+- `market_warnings` 會提高注意 / 處置風險
+- `monthly_revenue` / `earnings` / `dividends` / `theme_news` / `etf_rebalance` 可選擇自動產生事件
+
+## Demo Data
+
+Demo data 僅供流程測試，不是真實即時市場資料。Hybrid 模式會在缺資料時使用 Demo fallback，Reports 會明確標示。
+
+## 版權與合規
+
+- 不接券商 API
+- 不做自動下單
+- 不抓付費外資報告全文
+- 不抓新聞全文
+- 新聞與外資報告僅允許 metadata、sourceUrl、title、userSummary、relatedSymbols、relatedThemes
+- 本工具僅供個人研究、策略模擬、事件追蹤與風險控管
+
+## 未來可做
+
+- API connector 設定 UI
 - scheduled import
-- database
+- database / cloud sync
 - auth
-- cloud sync
-
-目前 MVP 不提供真實即時行情，所有 demo data 僅供測試。匯入資料會標示為 Imported，使用者必須自行確認來源與正確性。
+- 更多官方資料集 normalization

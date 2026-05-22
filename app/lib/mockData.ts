@@ -293,7 +293,7 @@ export const mockDataStatus: DataStatus[] = [
 }));
 
 export const mockSettings: AppSettings = {
-  dataMode: "Demo",
+  dataMode: "Hybrid",
   appVersion: APP_VERSION,
   enableDemoData: true,
   baseCapital: 1000000,

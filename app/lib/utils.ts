@@ -1,6 +1,9 @@
-import type { DataSource, EventType, MarketRegime, NextAction, RiskLevel, StrategyName } from "./types";
+import type { AppDataMode, DataSource, EventType, MarketRegime, NextAction, RiskLevel, StrategyName } from "./types";
 
-export const DEMO_SOURCE_NOTE = "示範資料，不是真實即時市場資料。";
+export const DEMO_SOURCE_NOTE = "示範資料，不是真實即時市場資料，僅供 MVP 測試與流程操作。";
+export const IMPORTED_SOURCE_NOTE = "使用者匯入 CSV 資料，請自行確認來源與正確性。";
+export const OFFICIAL_SOURCE_NOTE = "官方公開資料來源，仍需自行確認資料時點、欄位定義與交易適用性。";
+export const ESTIMATED_SOURCE_NOTE = "部分欄位由有限資料估算，請自行確認後再使用。";
 export const APP_VERSION = "0.1.0-super-mvp";
 
 export function clamp(value: number, min = 0, max = 100): number {
@@ -55,9 +58,9 @@ export const EVENT_TYPE_LABELS: Record<EventType, string> = {
   productLaunch: "產品發表",
   aiServerNews: "AI 伺服器消息",
   semiconductorNews: "半導體消息",
-  industryConference: "產業論壇",
+  industryConference: "產業會議",
   policy: "政策事件",
-  orderContract: "訂單合約",
+  orderContract: "訂單 / 合約",
   buyback: "庫藏股",
   capitalIncrease: "增資",
   convertibleBond: "可轉債",
@@ -68,7 +71,7 @@ export const EVENT_TYPE_LABELS: Record<EventType, string> = {
 
 export const NEXT_ACTION_LABELS: Record<NextAction, string> = {
   Observe: "觀察",
-  WaitForConfirmation: "等待確認",
+  WaitForConfirmation: "等事件確認",
   CreateTradePlan: "建立交易計畫",
   WaitForPullback: "等回測買點",
   AvoidChasing: "避免追高",
@@ -79,12 +82,20 @@ export const NEXT_ACTION_LABELS: Record<NextAction, string> = {
 
 export const DATA_SOURCE_LABELS: Record<DataSource, string> = {
   Real: "真實",
+  Official: "官方",
   Cached: "快取",
   Manual: "手動",
   Imported: "匯入",
   Estimated: "估算",
   Demo: "示範",
-  Missing: "缺資料"
+  Missing: "缺資料",
+  Error: "錯誤"
+};
+
+export const APP_DATA_MODE_LABELS: Record<AppDataMode, string> = {
+  DemoOnly: "Demo only",
+  Hybrid: "Hybrid",
+  RealImportedOnly: "Real / Imported only"
 };
 
 export const RISK_LEVEL_LABELS: Record<RiskLevel, string> = {
@@ -117,11 +128,11 @@ export const VOLATILITY_LABELS = {
 } as const;
 
 export const STRATEGY_LABELS: Record<StrategyName, string> = {
-  "Pre-Earnings Drift": "財報前動能延伸",
+  "Pre-Earnings Drift": "財報前預期漂移",
   "ETF Rebalance Flow": "ETF 成分調整資金流",
   "AI Theme Rotation": "AI 題材輪動",
   "Low Base Catalyst": "低基期事件催化",
-  "Event Pullback": "事件後健康回測",
+  "Event Pullback": "事件後回測",
   "Manual Event Research": "手動事件研究"
 };
 
@@ -133,8 +144,8 @@ export const RISK_CATEGORY_LABELS = {
   "Data Risk": "資料風險"
 } as const;
 
-export function sourceTag(dataSource: DataSource): string {
-  return DATA_SOURCE_LABELS[dataSource] ?? dataSource;
+export function sourceTag(dataSource: DataSource | AppDataMode): string {
+  return DATA_SOURCE_LABELS[dataSource as DataSource] ?? APP_DATA_MODE_LABELS[dataSource as AppDataMode] ?? dataSource;
 }
 
 export function formatNextAction(action: string): string {
@@ -169,8 +180,8 @@ export function formatRiskLevel(level: RiskLevel): string {
   return RISK_LEVEL_LABELS[level] ?? level;
 }
 
-export function formatDataSource(source: DataSource): string {
-  return DATA_SOURCE_LABELS[source] ?? source;
+export function formatDataSource(source: DataSource | AppDataMode): string {
+  return DATA_SOURCE_LABELS[source as DataSource] ?? APP_DATA_MODE_LABELS[source as AppDataMode] ?? source;
 }
 
 export function formatStrategy(strategy: StrategyName | string): string {

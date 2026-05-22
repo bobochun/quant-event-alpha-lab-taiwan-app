@@ -1,5 +1,3 @@
-"use client";
-
 import type { AppSettings, BackupPayload, Event, JournalEntry, Portfolio, TradePlan } from "./types";
 import { mockEvents, mockJournal, mockPortfolio, mockSettings, mockTradePlans } from "./mockData";
 
@@ -59,7 +57,7 @@ export function importAllData(payload: BackupPayload): void {
   saveTradePlans(payload.tradePlans);
   savePortfolio(payload.portfolio);
   saveJournal(payload.journal);
-  saveSettings({ ...payload.settings, dataMode: "Imported" });
+  saveSettings({ ...payload.settings, dataMode: payload.settings.dataMode ?? "Hybrid" });
 }
 
 export function resetLocalData(): void {
@@ -70,7 +68,7 @@ export function resetLocalData(): void {
 export function clearDemoData(): void {
   saveEvents([]);
   saveTradePlans([]);
-  savePortfolio({ ...mockPortfolio, positions: [], cash: 0, dataSource: "Manual", sourceNote: "手動本機資料。" });
+  savePortfolio({ ...mockPortfolio, positions: [], cash: 0, dataSource: "Manual", sourceNote: "手動資料模式，已清除示範投組。" });
   saveJournal([]);
-  saveSettings({ ...mockSettings, dataMode: "Manual", enableDemoData: false, dataSource: "Manual", sourceNote: "手動本機資料。" });
+  saveSettings({ ...mockSettings, dataMode: "RealImportedOnly", enableDemoData: false, dataSource: "Manual", sourceNote: "手動資料模式，已清除示範資料。" });
 }

@@ -4,7 +4,7 @@ test.describe("視覺截圖 smoke", () => {
   test("首頁 desktop", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name.includes("mobile"), "desktop only");
     await page.goto("/");
-    await expect(page.getByRole("heading", { name: "台股量化事件研究室" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /台股量化事件研究室/ })).toBeVisible();
     await page.screenshot({ path: "test-results/screenshots/home-desktop.png", fullPage: true });
   });
 
@@ -25,7 +25,7 @@ test.describe("視覺截圖 smoke", () => {
   test("首頁 mobile", async ({ page }, testInfo) => {
     test.skip(!testInfo.project.name.includes("mobile"), "mobile only");
     await page.goto("/");
-    await expect(page.getByRole("heading", { name: "台股量化事件研究室" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /台股量化事件研究室/ })).toBeVisible();
     await page.screenshot({ path: "test-results/screenshots/home-mobile.png", fullPage: true });
   });
 
