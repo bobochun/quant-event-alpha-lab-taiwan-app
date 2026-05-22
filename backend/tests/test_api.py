@@ -1,6 +1,9 @@
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.quant.indicators import attach_indicators, rsi, sma
+from app.services.kline_service import clear_kline_cache
+from app.services.quote_service import clear_quote_cache
 
 
 client = TestClient(app)
@@ -24,6 +27,17 @@ def test_latest_quote_fallback():
     assert "delayMinutes" in body["data"]
 
 
+def test_quote_cache_guard_does_not_crash():
+    clear_quote_cache()
+    first = client.get("/quotes/latest/2330")
+    second = client.get("/quotes/latest/2330")
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["ok"] is True
+    assert second.json()["ok"] is True
+    assert second.json()["data"]["symbol"] == "2330"
+
+
 def test_kline_fallback():
     response = client.get("/kline/2330?interval=1d&range=1y")
     assert response.status_code == 200
@@ -32,6 +46,18 @@ def test_kline_fallback():
     assert body["data"]["symbol"] == "2330"
     assert len(body["data"]["bars"]) > 20
     assert "ma5" in body["data"]["bars"][-1]
+    assert "rsi14" in body["data"]["bars"][-1]
+
+
+def test_kline_cache_guard_does_not_crash():
+    clear_kline_cache()
+    first = client.get("/kline/2330?interval=1d&range=1m")
+    second = client.get("/kline/2330?interval=1d&range=1m")
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["ok"] is True
+    assert second.json()["ok"] is True
+    assert len(second.json()["data"]["bars"]) > 0
 
 
 def test_unsupported_interval_does_not_crash():
@@ -48,3 +74,32 @@ def test_provider_status():
     body = response.json()
     assert body["ok"] is True
     assert any(row["provider"] == "finmind" for row in body["data"])
+    assert any(row["provider"] == "yfinance" for row in body["data"])
+
+
+def test_yfinance_status_does_not_crash():
+    response = client.get("/market-data/source-health")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    yf_rows = [row for row in body["data"] if row["provider"] == "yfinance"]
+    assert len(yf_rows) == 1
+    assert yf_rows[0]["status"] in {"ok", "degraded", "disabled", "error"}
+
+
+def test_indicators_calculation():
+    closes = [float(value) for value in range(1, 31)]
+    assert sma(closes, 5)[4] == 3.0
+    assert sma(closes, 20)[19] == 10.5
+    assert rsi(closes, 14)[-1] == 100
+
+    rows = [
+        {"time": f"2026-01-{day:02d}", "open": float(day), "high": float(day + 1), "low": float(day - 1), "close": float(day), "volume": 1000}
+        for day in range(1, 31)
+    ]
+    enriched, source = attach_indicators(rows)
+    assert "partial indicators" in source
+    assert enriched[-1]["ma5"] is not None
+    assert enriched[-1]["ma20"] is not None
+    assert enriched[-1]["ma60"] is None
+    assert enriched[-1]["rsi14"] is not None
