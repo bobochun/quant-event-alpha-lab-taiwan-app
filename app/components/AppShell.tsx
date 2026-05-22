@@ -13,6 +13,7 @@ import {
   FlaskConical,
   Gauge,
   Home,
+  LineChart,
   Radar,
   Settings,
   ShieldAlert,
@@ -23,6 +24,7 @@ import type { ReactNode } from "react";
 
 const nav = [
   ["/", "每日主控台", Home, "3 分鐘工作流"],
+  ["/market", "即時報價與 K 線", LineChart, "價格圖表"],
   ["/event-radar", "事件催化雷達", Radar, "未來 7 天"],
   ["/theme-radar", "題材熱度雷達", Activity, "升溫題材"],
   ["/trade-plan", "交易計畫", ClipboardList, "部位試算"],

@@ -2,6 +2,8 @@
 
 本專案採 Vercel-first 架構，可用 GitHub + Vercel Dashboard 或 Vercel CLI 部署。
 
+前端與後端現在可分離部署：Next.js 前端部署到 Vercel；FastAPI 後端可部署到 Render、Railway、Fly.io、自有 VPS 或任何支援 Python 3.11+ 的平台。前端若連不到後端，`/market` 會使用明確標示的示範 fallback，不會白屏。
+
 ## 需求
 
 - Node.js 20 LTS 或更新
@@ -18,6 +20,9 @@
 NEXT_PUBLIC_APP_NAME=Quant Event Alpha Lab Taiwan
 NEXT_PUBLIC_DATA_MODE=Demo
 NEXT_PUBLIC_ENABLE_DEMO_DATA=true
+NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
+ENABLE_FINMIND=false
+FINMIND_API_TOKEN=
 ```
 
 ## 本機啟動
@@ -35,6 +40,31 @@ npm run dev
 npm run typecheck
 npm run lint
 npm run build
+```
+
+## FastAPI 後端部署
+
+本機：
+
+```bash
+cd backend
+python -m pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+Production 建議：
+
+- Python 3.11+
+- `pip install -r backend/requirements.txt`
+- Start command：`uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- `DATABASE_URL` 可用 PostgreSQL；未設定時使用 SQLite local fallback
+- `FINMIND_API_TOKEN` 不要提交到 Git
+- 免費 / fallback 資料不得標示為正式即時行情
+
+後端部署完成後，在 Vercel 前端設定：
+
+```bash
+NEXT_PUBLIC_BACKEND_URL=https://<BACKEND_HOST>
 ```
 
 ## 方法 A：GitHub + Vercel Dashboard

@@ -20,6 +20,18 @@
 18. 從 `/event-radar` 點「建立交易計畫」，確認 `/trade-plan` 自動帶入股票、事件、日期與分數摘要。
 19. 在 `/settings` 勾選 / 取消首頁 Widget，回首頁確認顯示狀態改變。
 20. 參照 `docs/PR_REVIEW_CHECKLIST.md` 檢查 PR preview。
+
+## 報價與 K 線
+
+1. 啟動後端：`cd backend && uvicorn app.main:app --reload --port 8000`。
+2. 打開 `/market?symbol=2330`，確認有「即時報價與 K 線」標題。
+3. 搜尋 `2382`，確認報價卡更新。
+4. 切換 1個月 / 3個月 / 1年，確認 K 線資料更新。
+5. 切換 日K / 週K / 月K，確認圖表不白屏。
+6. 未設定 FinMind token 時，確認資料來源顯示 fallback 或 disabled，不標示為正式即時。
+7. 在 `/event-radar` 點「查看 K 線」，確認導到 `/market?symbol=`。
+8. 在 `/trade-plan` 點「帶入最新價作為研究進場價」，確認有資料來源與風險提示。
+9. 在 `/data-center` 查看「報價與 K 線資料源」，測試 2330 最新價與日 K。
 ## Official Data Source / Hybrid Mode
 
 - 開啟 `/data-center`，確認 TWSE OpenAPI、TPEx OpenAPI、MOPS、CSV 匯入、Demo Data 狀態有顯示。
@@ -36,6 +48,14 @@
 ```bash
 npm run test:e2e:install
 npm run test:e2e
+```
+
+後端測試：
+
+```bash
+cd backend
+pytest
+python -m compileall app
 ```
 
 若環境無法下載 browser，先確認 `npm run typecheck` 與 `npm run build` 通過，並在 PR 說明中記錄原因。

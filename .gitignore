@@ -8,5 +8,9 @@ out
 *.zip
 test-results
 playwright-report
+__pycache__/
+*.py[cod]
+.pytest_cache/
+backend/data/
 
 .vercel

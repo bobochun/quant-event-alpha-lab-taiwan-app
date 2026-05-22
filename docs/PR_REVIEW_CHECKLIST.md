@@ -29,6 +29,14 @@
 - [ ] 無白屏
 - [ ] 無 console critical error
 - [ ] Vercel preview 可開啟
+- [ ] `/market` 可查詢 2330 報價與 K 線
+- [ ] Event Radar「查看 K 線」可導向 `/market?symbol=`
+- [ ] Trade Plan 可帶入最新價，並顯示不是建議進場
+- [ ] Data Center 顯示報價與 K 線 provider 狀態
+- [ ] 未設定 FinMind token 時不白屏
+- [ ] Backend `/quotes/latest/2330` 可回應
+- [ ] Backend `/kline/2330?interval=1d&range=1y` 可回應
+- [ ] Backend `pytest` 通過，或 PR 說明列出依賴 / 環境限制
 - [ ] Data Center 可顯示 TWSE / TPEx / MOPS / CSV / Demo 狀態
 - [ ] 官方資料 fetch 失敗時不白屏
 - [ ] CSV 匯入 validation 正常

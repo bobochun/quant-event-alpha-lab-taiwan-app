@@ -12,6 +12,8 @@ Quant Event Alpha Lab Taiwan 是個人用台股事件驅動研究終端，用來
 - MVP 使用瀏覽器 `localStorage` 儲存資料
 - JSON 匯出 / 匯入，方便換電腦移動使用者資料
 - CSV 模板下載與手動資料匯入（events.csv 等）
+- 獨立 FastAPI 後端骨架：最新報價、K 線、provider health、SQLite local fallback
+- `/market` 即時報價與 K 線頁：最新價、成交量、資料來源、日/週/月 K 與區間切換
 - Playwright smoke / screenshot 測試
 - 示範資料明確標示：`示範資料，不是真實即時市場資料。`
 
@@ -34,6 +36,25 @@ npm run dev
 http://localhost:3000
 ```
 
+## 後端啟動（報價與 K 線）
+
+後端位於 `backend/`，可獨立部署。若只跑前端，`/market` 會使用示範 fallback，不會白屏。
+
+```bash
+cd backend
+python -m pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+```
+
+常用 API：
+
+```text
+GET http://localhost:8000/health
+GET http://localhost:8000/quotes/latest/2330
+GET http://localhost:8000/kline/2330?interval=1d&range=1y
+GET http://localhost:8000/market-data/providers
+```
+
 ## 檢查與 Build
 
 ```bash
@@ -41,6 +62,14 @@ npm run typecheck
 npm run lint
 npm run build
 npm run test:e2e
+```
+
+後端：
+
+```bash
+cd backend
+pytest
+python -m compileall app
 ```
 
 ## 部署到 Vercel
@@ -54,6 +83,12 @@ npm run test:e2e
 5. Output directory：`.next`。
 6. 加入 `.env.example` 內的環境變數。
 7. Deploy。
+
+前端 Vercel 不需要後端 build 才能部署。若後端另行部署，請在前端設定：
+
+```bash
+NEXT_PUBLIC_BACKEND_URL=https://<YOUR_BACKEND_HOST>
+```
 
 方法 B：Vercel CLI
 
@@ -122,5 +157,6 @@ MVP 使用 `localStorage` 儲存：
 - `docs/DATA_SOURCES.md`
 - `docs/MANUAL_TESTING.md`
 - `docs/PR_REVIEW_CHECKLIST.md`
+- `docs/REALTIME_AND_KLINE.md`
 - `docs/API_ROUTES.md`
 - `docs/LOCAL_DATA_TEMPLATES.md`

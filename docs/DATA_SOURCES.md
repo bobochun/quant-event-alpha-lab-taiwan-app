@@ -99,3 +99,29 @@ Demo data 僅供流程測試，不是真實即時市場資料。Hybrid 模式會
 - database / cloud sync
 - auth
 - 更多官方資料集 normalization
+
+## 報價與 K 線 Provider
+
+本階段新增 FastAPI 後端資料源分層：
+
+Licensed Realtime > FinMind > Official > Imported / Manual > yfinance Research Fallback > Demo
+
+### Licensed Realtime Placeholder
+
+預留合法即時報價 provider interface。未設定授權時狀態為 disabled，不會假裝有即時行情。
+
+### FinMind
+
+可透過 `FINMIND_API_TOKEN` 啟用。部分即時 snapshot 可能需要 sponsor 權限；權限不足時會顯示清楚錯誤並 fallback。
+
+### TWSE / TPEx Official
+
+官方公開資料用於盤後、收盤或統計資料，不標示為 tick-level 即時行情。若 endpoint 不可用，只更新 provider health，不讓 UI 白屏。
+
+### yfinance Research Fallback
+
+僅作研究 fallback，UI 顯示「非官方研究資料，可能延遲或不穩定」。不可作為正式即時報價。
+
+### Demo Fallback
+
+所有 provider 不可用時，前端與後端都會使用示範資料維持功能可操作，並明確標示不是真實即時市場資料。

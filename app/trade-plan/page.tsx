@@ -12,6 +12,7 @@ import { ErrorState, MiniMetricGrid, SectionCard, TradePlanCard, WarningList } f
 import { daysBetween, formatNextAction, formatSharesLots, formatStrategy, todayTaipei } from "../lib/utils";
 import { markJournalLinked, markTradePlanCreated } from "../lib/actionState";
 import { loadSelectedEvent } from "../lib/navigationState";
+import { fetchLatestQuote } from "../lib/marketApi";
 
 const strategies: StrategyName[] = ["Pre-Earnings Drift", "ETF Rebalance Flow", "AI Theme Rotation", "Low Base Catalyst", "Event Pullback", "Manual Event Research"];
 const inputClass = "mt-1 w-full rounded-md border border-slate-200 bg-white p-2 text-slate-900 outline-none focus:border-cyan-500";
@@ -38,6 +39,7 @@ export default function TradePlanPage() {
   const [adaptive, setAdaptive] = useState<PositionSizingResult | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [lastPlanEventId, setLastPlanEventId] = useState<string | undefined>();
+  const [quoteMessage, setQuoteMessage] = useState("");
   const [form, setForm] = useState({
     symbol: "2330",
     strategy: "Low Base Catalyst" as StrategyName,
@@ -151,6 +153,19 @@ export default function TradePlanPage() {
     markJournalLinked(form.relatedEventId);
   }
 
+  async function handleLatestPrice() {
+    setQuoteMessage("正在取得最新價...");
+    const quote = await fetchLatestQuote(form.symbol);
+    setForm((current) => ({
+      ...current,
+      entryPrice: quote.price,
+      stopLoss: Number((quote.price * 0.94).toFixed(2)),
+      takeProfit1: Number((quote.price * 1.07).toFixed(2)),
+      takeProfit2: Number((quote.price * 1.13).toFixed(2))
+    }));
+    setQuoteMessage(`已帶入 ${quote.symbol} / ${quote.name} 最新價 NT$ ${quote.price.toLocaleString("zh-TW")}。來源：${quote.provider} / ${quote.dataSource}。請自行確認價格與流動性，最新價不代表建議進場。`);
+  }
+
   return (
     <div className="space-y-4">
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
@@ -193,6 +208,11 @@ export default function TradePlanPage() {
           </Step>
 
           <Step title="Step 3 設定進場 / 停損 / 停利" note="研究進場價必須高於停損價，才有辦法計算風險。">
+            <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm text-cyan-900">
+              <button className="rounded-md bg-cyan-700 px-3 py-1.5 text-xs font-semibold text-white" onClick={() => void handleLatestPrice()}>帶入最新價作為研究進場價</button>
+              <span>請自行確認價格與流動性，最新價不代表建議進場。</span>
+            </div>
+            {quoteMessage ? <p className="mb-3 text-xs leading-5 text-amber-700">{quoteMessage}</p> : null}
             <NumberGrid form={form} setForm={setForm} keys={["entryPrice", "stopLoss", "takeProfit1", "takeProfit2"]} labels={{ entryPrice: "研究進場價", stopLoss: "停損價", takeProfit1: "第一停利價", takeProfit2: "第二停利價" }} />
             <div className="mt-3 grid gap-3 md:grid-cols-2">
               <label className="text-xs text-slate-500">事件失效條件<textarea className={inputClass} value={form.eventInvalidationRule} onChange={(event) => setForm({ ...form, eventInvalidationRule: event.target.value })} /></label>

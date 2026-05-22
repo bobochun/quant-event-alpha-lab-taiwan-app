@@ -6,10 +6,12 @@ import { ImportTemplatePanel } from "../components/import/ImportTemplatePanel";
 import { DataSourceBadge, MiniMetricGrid, RiskBadge, SectionCard } from "../components/ui";
 import { DataTable, type DataTableColumn } from "../components/ui/DataTable";
 import { loadImportedDataset, type ImportSummary } from "../lib/importers";
+import { fetchKLine, fetchLatestQuote, fetchMarketProviders, type MarketProviderStatus } from "../lib/marketApi";
 import type { SourceHealth } from "../lib/types";
 import { formatDateTW } from "../lib/utils";
 
 type SourceRow = SourceHealth & { id: string };
+type MarketProviderRow = MarketProviderStatus & { id: string };
 const initialHealth: SourceRow[] = [
   { id: "twse", sourceId: "twse", sourceName: "TWSE OpenAPI", status: "degraded", recordsFetched: 0, errorMessage: "尚未手動刷新。" },
   { id: "tpex", sourceId: "tpex", sourceName: "TPEx OpenAPI", status: "degraded", recordsFetched: 0, errorMessage: "尚未手動刷新。" },
@@ -21,7 +23,9 @@ const initialHealth: SourceRow[] = [
 export default function DataCenterPage() {
   const [version, setVersion] = useState(0);
   const [health, setHealth] = useState<SourceRow[]>(initialHealth);
+  const [marketProviders, setMarketProviders] = useState<MarketProviderRow[]>([]);
   const [message, setMessage] = useState("");
+  const [marketMessage, setMarketMessage] = useState("");
   const imported = loadImportedDataset();
   const summaries = imported.summaries;
 
@@ -40,6 +44,7 @@ export default function DataCenterPage() {
 
   useEffect(() => {
     void loadSourceHealth();
+    void fetchMarketProviders().then((rows) => setMarketProviders(rows.map((row) => ({ ...row, id: row.provider }))));
   }, []);
 
   async function refresh(sourceId?: string) {
@@ -78,6 +83,32 @@ export default function DataCenterPage() {
     { key: "generated", header: "生成事件", accessor: (row) => row.generatedEvents, sortValue: (row) => row.generatedEvents }
   ];
 
+  const marketColumns: Array<DataTableColumn<MarketProviderRow>> = [
+    { key: "provider", header: "Provider", accessor: (row) => <span className="font-semibold text-slate-950">{row.provider}</span>, searchValue: (row) => row.provider },
+    { key: "status", header: "狀態", accessor: (row) => <StatusBadge status={row.status as SourceHealth["status"]} />, sortValue: (row) => row.status },
+    { key: "latest", header: "最新價", accessor: (row) => row.supportsLatestQuote ? "支援" : "不支援" },
+    { key: "intraday", header: "分 K", accessor: (row) => row.supportsIntraday ? "支援" : "不支援" },
+    { key: "daily", header: "日 K", accessor: (row) => row.supportsDaily ? "支援" : "不支援" },
+    { key: "realtime", header: "即時", accessor: (row) => row.isRealtime ? "是" : "否" },
+    { key: "token", header: "Token", accessor: (row) => row.tokenConfigured ? "已設定" : "未設定" },
+    { key: "error", header: "說明", accessor: (row) => <span className="text-amber-700">{row.errorMessage ?? "-"}</span>, searchValue: (row) => row.errorMessage ?? "" }
+  ];
+
+  async function testMarket(kind: "quote" | "kline") {
+    setMarketMessage("正在測試 2330 市場資料...");
+    try {
+      if (kind === "quote") {
+        const quote = await fetchLatestQuote("2330");
+        setMarketMessage(`2330 最新價測試完成：NT$ ${quote.price}，來源 ${quote.provider} / ${quote.dataSource}。`);
+      } else {
+        const payload = await fetchKLine("2330", "1d", "1y");
+        setMarketMessage(`2330 日 K 測試完成：${payload.bars.length} 筆，來源 ${payload.provider} / ${payload.dataSource}。`);
+      }
+    } catch {
+      setMarketMessage("市場資料測試失敗；前端會保留 fallback，不影響頁面使用。");
+    }
+  }
+
   const qualityItems = [
     { label: "匯入事件", value: imported.events.length },
     { label: "股價快照", value: imported.priceSnapshots.length },
@@ -114,6 +145,11 @@ export default function DataCenterPage() {
           <DataSourceBadge source="Demo" />
           <span>Hybrid 模式會在缺資料時使用示範 fallback。</span>
         </div>
+      </SectionCard>
+
+      <SectionCard title="報價與 K 線資料源" action={<div className="flex flex-wrap gap-2"><button className="rounded-md border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm font-semibold text-cyan-800" onClick={() => void testMarket("quote")}>測試 2330 最新價</button><button className="rounded-md border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm font-semibold text-cyan-800" onClick={() => void testMarket("kline")}>測試 2330 日 K</button></div>}>
+        <DataTable rows={marketProviders} columns={marketColumns} emptyMessage="尚未取得報價 provider 狀態。" />
+        <p className="mt-3 text-sm text-amber-700">{marketMessage || "FinMind 未設定 token 時會自動停用；官方資料若只支援盤後，前端會明確標示為延遲或盤後資料。"}</p>
       </SectionCard>
 
       <SectionCard title="CSV 模板下載">
