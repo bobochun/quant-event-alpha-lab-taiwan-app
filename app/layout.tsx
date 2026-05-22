@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { AppShell } from "./components/AppShell";
+import { AutoRefreshProvider } from "./components/AutoRefreshProvider";
 
 export const metadata: Metadata = {
   title: "台股量化事件研究室",
@@ -11,7 +12,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="zh-Hant">
       <body>
-        <AppShell>{children}</AppShell>
+        <AutoRefreshProvider>
+          <AppShell>{children}</AppShell>
+        </AutoRefreshProvider>
       </body>
     </html>
   );
