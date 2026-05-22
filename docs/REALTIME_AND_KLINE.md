@@ -109,7 +109,26 @@ API 回傳會包含：
 
 資料不足時指標為 `null`，`indicatorSource` 會顯示 insufficient data。
 
-## 前端測試
+## Frontend 連接後端
+
+Next.js 前端預設會呼叫：
+
+```bash
+NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
+```
+
+本機開發時建議開兩個 terminal：
+
+```bash
+# terminal 1: backend
+cd backend
+python -m pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+
+# terminal 2: frontend
+npm install
+npm run dev
+```
 
 打開：
 
@@ -117,19 +136,55 @@ API 回傳會包含：
 http://localhost:3000/market?symbol=2330
 ```
 
-確認：
+若後端連不上，前端會顯示明確標示的 Demo fallback，不會白屏，也不會宣稱是即時行情。
 
-- 最新報價卡有價格、漲跌、成交量、更新時間與資料來源
-- K 線圖有 OHLC、成交量與 MA 線
-- 可切換 1M / 3M / 1Y
-- 非即時資料會顯示延遲或 fallback 提醒
+## 部署建議
 
-## 部署注意
+前端與後端分開部署：
 
-Next.js 前端不依賴後端 build。後端可獨立部署，前端透過：
+- Frontend：Vercel，build Next.js，不需要 build FastAPI backend。
+- Backend：Render / Railway / Fly.io / Zeabur 皆可，啟動指令通常是 `uvicorn app.main:app --host 0.0.0.0 --port $PORT`。
+
+部署後在 Vercel 設定：
 
 ```bash
-NEXT_PUBLIC_BACKEND_URL=https://<BACKEND_HOST>
+NEXT_PUBLIC_BACKEND_URL=https://<YOUR_BACKEND_HOST>
 ```
 
-連線。未設定或後端不可用時，前端會使用明確標示的 Demo fallback。
+後端 secrets 不進 git，請在後端平台設定：
+
+```bash
+DATABASE_URL=<POSTGRES_OR_SQLITE_URL>
+ENABLE_FINMIND=false
+FINMIND_API_TOKEN=
+ENABLE_OFFICIAL_DATA=false
+ENABLE_YFINANCE=true
+ENABLE_DEMO_FALLBACK=true
+BACKEND_CORS_ORIGINS=https://<YOUR_FRONTEND>.vercel.app,http://localhost:3000
+```
+
+## 後端測試
+
+```bash
+cd backend
+python -m pip install -r requirements.txt
+pytest
+python -m compileall app
+```
+
+## 前端測試
+
+```bash
+npm run typecheck
+npm run lint
+npm run build
+npm run test:e2e
+```
+
+## 驗收重點
+
+- `/quotes/latest/2330` 有回應，且包含 `provider` / `dataSource` / `isRealtime` / `delayMinutes`。
+- `/kline/2330?interval=1d&range=1y` 有回應，且 bars 包含 OHLCV、MA5、MA20、MA60、RSI14。
+- `/market?symbol=2330` 可顯示報價卡與 K 線圖。
+- 不支援的 interval 不 crash，應 fallback 或顯示清楚錯誤。
+- 免費、官方、fallback、demo 資料都不可標示成正式即時行情。
