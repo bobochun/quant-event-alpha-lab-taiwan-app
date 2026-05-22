@@ -1,8 +1,11 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
 
+from app.db.session import get_db
 from app.schemas.common import ok_response
 from app.schemas.market import JobRunRequest, RefreshKLineRequest, RefreshQuotesRequest
 from app.services.market_data_service import MarketDataService
+from app.services.research_service import ResearchService
 
 router = APIRouter(tags=["market-data"])
 
@@ -24,11 +27,23 @@ async def refresh_kline(request: RefreshKLineRequest):
 
 
 @router.post("/jobs/run")
-async def run_job(request: JobRunRequest):
+async def run_job(request: JobRunRequest, db: Session = Depends(get_db)):
     symbols = request.symbols or ["2330", "2382", "2317"]
     service = MarketDataService()
+    research = ResearchService()
     if request.job_name in {"refresh_latest_quotes", "refresh_watchlist_quotes"}:
         quotes = await service.refresh_quotes(RefreshQuotesRequest(symbols=symbols, provider="auto"))
-        return ok_response({"jobName": request.job_name, "recordsProcessed": len(quotes)}, "Demo", "Job 已同步執行；本 MVP 未啟用長時間背景任務。")
-    payload = await service.refresh_kline(RefreshKLineRequest(symbol=symbols[0], interval="1d", range="1y", provider="auto"))
-    return ok_response({"jobName": request.job_name, "recordsProcessed": len(payload.bars)}, payload.data_source, "Job 已同步執行；本 MVP 未啟用長時間背景任務。")
+        return ok_response({"jobName": request.job_name, "recordsProcessed": len(quotes)}, "Demo", "Job 已同步執行；排程化可接 APScheduler。")
+    if request.job_name == "refresh_daily_kline":
+        payload = await service.refresh_kline(RefreshKLineRequest(symbol=symbols[0], interval="1d", range="1y", provider="auto"))
+        return ok_response({"jobName": request.job_name, "recordsProcessed": len(payload.bars)}, payload.data_source, "Job 已同步執行；排程化可接 APScheduler。")
+    if request.job_name in {"refresh_factor_scores", "quant_scan_daily"}:
+        payload = await research.cross_section(symbols, persist=True, db=db)
+        return ok_response({"jobName": request.job_name, "recordsProcessed": len(payload.ranks), "universeSize": payload.universe_size}, "Cached", "每日因子分數已計算並嘗試持久化到 factor_scores。")
+    if request.job_name == "data_quality_check":
+        rows = await research.data_quality(db)
+        return ok_response({"jobName": request.job_name, "recordsProcessed": len(rows)}, "Cached", "資料品質檢查完成並嘗試寫入 data_quality_reports。")
+    if request.job_name == "theme_strength_scan":
+        rows = await research.theme_strength(symbols)
+        return ok_response({"jobName": request.job_name, "recordsProcessed": len(rows), "themes": [row.model_dump(by_alias=True) for row in rows]}, "Cached", "題材相對強弱掃描完成。")
+    return ok_response({"jobName": request.job_name, "recordsProcessed": 0}, "Missing", "未知 job_name；支援 refresh_latest_quotes、refresh_daily_kline、refresh_factor_scores、data_quality_check、theme_strength_scan。")
