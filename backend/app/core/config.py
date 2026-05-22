@@ -40,6 +40,15 @@ class Settings(BaseSettings):
     crawler_respect_robots: bool = True
     crawler_min_request_interval_ms: int = 1200
 
+    enable_ai_quant: bool = False
+    enable_ai_score_in_alpha: bool = False
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4.1-mini"
+    openai_base_url: str = "https://api.openai.com/v1"
+    ai_request_timeout_ms: int = 20000
+    ai_max_items_per_run: int = 20
+    ai_schema_version: str = "ai-quant-v1"
+
     class Config:
         env_file = ".env"
         extra = "ignore"
@@ -51,6 +60,10 @@ class Settings(BaseSettings):
     @property
     def crawler_allowed_domain_list(self) -> list[str]:
         return [item.strip().lower() for item in self.crawler_allowed_domains.split(",") if item.strip()]
+
+    @property
+    def ai_enabled_with_key(self) -> bool:
+        return self.enable_ai_quant and bool(self.openai_api_key.strip())
 
 
 @lru_cache
@@ -82,4 +95,12 @@ def get_settings() -> Settings:
         crawler_max_pages_per_run=int(os.getenv("CRAWLER_MAX_PAGES_PER_RUN", "12")),
         crawler_respect_robots=os.getenv("CRAWLER_RESPECT_ROBOTS", "true").lower() == "true",
         crawler_min_request_interval_ms=int(os.getenv("CRAWLER_MIN_REQUEST_INTERVAL_MS", "1200")),
+        enable_ai_quant=os.getenv("ENABLE_AI_QUANT", "false").lower() == "true",
+        enable_ai_score_in_alpha=os.getenv("ENABLE_AI_SCORE_IN_ALPHA", "false").lower() == "true",
+        openai_api_key=os.getenv("OPENAI_API_KEY", ""),
+        openai_model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
+        openai_base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+        ai_request_timeout_ms=int(os.getenv("AI_REQUEST_TIMEOUT_MS", "20000")),
+        ai_max_items_per_run=int(os.getenv("AI_MAX_ITEMS_PER_RUN", "20")),
+        ai_schema_version=os.getenv("AI_SCHEMA_VERSION", "ai-quant-v1"),
     )
