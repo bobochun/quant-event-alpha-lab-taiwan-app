@@ -184,13 +184,27 @@ def test_research_portfolio_optimize():
     assert "weights" in body["data"]
 
 
+def test_source_digest_collect_and_query():
+    collect = client.post("/source-digest/collect", json={"symbols": ["2330"], "themes": ["AI server"], "sourceSet": "official", "maxPages": 3, "persist": False})
+    query = client.get("/source-digest/items?symbols=2330")
+    assert collect.status_code == 200
+    assert query.status_code == 200
+    assert collect.json()["ok"] is True
+    assert query.json()["ok"] is True
+    assert "items" in collect.json()["data"]
+    assert "sources" in collect.json()["data"]
+
+
 def test_jobs_quant_scan_and_data_quality():
     scan = client.post("/jobs/run", json={"jobName": "refresh_factor_scores", "symbols": ["2330", "2382"]})
     quality = client.post("/jobs/run", json={"jobName": "data_quality_check", "symbols": ["2330"]})
+    digest = client.post("/jobs/run", json={"jobName": "source_digest_collect", "symbols": ["2330"]})
     assert scan.status_code == 200
     assert quality.status_code == 200
+    assert digest.status_code == 200
     assert scan.json()["ok"] is True
     assert quality.json()["ok"] is True
+    assert digest.json()["ok"] is True
 
 
 def test_indicators_calculation():
