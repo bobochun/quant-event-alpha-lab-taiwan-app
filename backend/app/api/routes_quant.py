@@ -6,7 +6,9 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.schemas.common import ok_response
 from app.schemas.market import Interval, ProviderKey, RangeKey
+from app.schemas.quant import QuantMode
 from app.services.quant_analysis_service import QuantAnalysisService
+from app.services.systematic_quant_service import SystematicQuantService
 
 router = APIRouter(tags=["quant"])
 
@@ -41,4 +43,32 @@ async def analyze_batch(
         payload.model_dump(by_alias=True),
         "Cached" if payload.results else "Missing",
         "後端量化分析完成。分數僅供個人研究與風控，不構成投資建議。",
+    )
+
+
+@router.get("/quant/modes")
+async def quant_modes():
+    modes = SystematicQuantService().modes()
+    return ok_response(
+        [mode.model_dump(by_alias=True) for mode in modes],
+        "Estimated",
+        "系統化量化模式設定；可用於不同市場情境與研究目的。",
+    )
+
+
+@router.get("/quant/systematic-scan")
+async def systematic_scan(
+    mode: QuantMode = Query("balanced"),
+    symbols: str = Query("2330,2382,2317,2308,3017,3037,3231,2603,2615,8046"),
+    interval: Interval = Query("1d"),
+    range: RangeKey = Query("1y"),
+    provider: ProviderKey = Query("auto"),
+    db: Session = Depends(get_db),
+):
+    symbol_list = [item.strip() for item in symbols.split(",") if item.strip()]
+    payload = await SystematicQuantService().scan(mode=mode, symbols=symbol_list, interval=interval, range_key=range, provider=provider, db=db)
+    return ok_response(
+        payload.model_dump(by_alias=True),
+        "Cached" if payload.results else "Missing",
+        f"{payload.mode_config.label} 掃描完成。分數僅供研究排序與風控，不構成投資建議。",
     )
