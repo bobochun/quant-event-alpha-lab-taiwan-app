@@ -49,6 +49,14 @@ class Settings(BaseSettings):
     ai_max_items_per_run: int = 20
     ai_schema_version: str = "ai-quant-v1"
 
+    enable_backend_scheduler: bool = True
+    scheduler_symbols: str = "2330,2382,2317,2308,3017,3037,3231,2603,2615,2454"
+    scheduler_quote_minutes: int = 5
+    scheduler_kline_minutes: int = 60
+    scheduler_quant_minutes: int = 120
+    scheduler_digest_minutes: int = 240
+    scheduler_ai_minutes: int = 360
+
     class Config:
         env_file = ".env"
         extra = "ignore"
@@ -64,6 +72,10 @@ class Settings(BaseSettings):
     @property
     def ai_enabled_with_key(self) -> bool:
         return self.enable_ai_quant and bool(self.openai_api_key.strip())
+
+    @property
+    def scheduler_symbol_list(self) -> list[str]:
+        return [item.strip() for item in self.scheduler_symbols.split(",") if item.strip()]
 
 
 @lru_cache
@@ -103,4 +115,11 @@ def get_settings() -> Settings:
         ai_request_timeout_ms=int(os.getenv("AI_REQUEST_TIMEOUT_MS", "20000")),
         ai_max_items_per_run=int(os.getenv("AI_MAX_ITEMS_PER_RUN", "20")),
         ai_schema_version=os.getenv("AI_SCHEMA_VERSION", "ai-quant-v1"),
+        enable_backend_scheduler=os.getenv("ENABLE_BACKEND_SCHEDULER", "true").lower() == "true",
+        scheduler_symbols=os.getenv("SCHEDULER_SYMBOLS", "2330,2382,2317,2308,3017,3037,3231,2603,2615,2454"),
+        scheduler_quote_minutes=int(os.getenv("SCHEDULER_QUOTE_MINUTES", "5")),
+        scheduler_kline_minutes=int(os.getenv("SCHEDULER_KLINE_MINUTES", "60")),
+        scheduler_quant_minutes=int(os.getenv("SCHEDULER_QUANT_MINUTES", "120")),
+        scheduler_digest_minutes=int(os.getenv("SCHEDULER_DIGEST_MINUTES", "240")),
+        scheduler_ai_minutes=int(os.getenv("SCHEDULER_AI_MINUTES", "360")),
     )
