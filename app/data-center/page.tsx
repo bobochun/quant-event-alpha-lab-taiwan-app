@@ -5,6 +5,7 @@ import { CsvImportPanel } from "../components/import/CsvImportPanel";
 import { ImportTemplatePanel } from "../components/import/ImportTemplatePanel";
 import { DataSourceBadge, MiniMetricGrid, RiskBadge, SectionCard } from "../components/ui";
 import { DataTable, type DataTableColumn } from "../components/ui/DataTable";
+import { fetchBackendEventProviders, type BackendEventProviderStatus } from "../lib/backendEventsApi";
 import { loadImportedDataset, type ImportSummary } from "../lib/importers";
 import { fetchKLine, fetchLatestQuote, fetchMarketProviders, type MarketProviderStatus } from "../lib/marketApi";
 import type { SourceHealth } from "../lib/types";
@@ -12,6 +13,7 @@ import { formatDateTW } from "../lib/utils";
 
 type SourceRow = SourceHealth & { id: string };
 type MarketProviderRow = MarketProviderStatus & { id: string };
+type EventProviderRow = BackendEventProviderStatus & { id: string };
 const initialHealth: SourceRow[] = [
   { id: "twse", sourceId: "twse", sourceName: "TWSE OpenAPI", status: "degraded", recordsFetched: 0, errorMessage: "尚未手動刷新。" },
   { id: "tpex", sourceId: "tpex", sourceName: "TPEx OpenAPI", status: "degraded", recordsFetched: 0, errorMessage: "尚未手動刷新。" },
@@ -24,8 +26,10 @@ export default function DataCenterPage() {
   const [version, setVersion] = useState(0);
   const [health, setHealth] = useState<SourceRow[]>(initialHealth);
   const [marketProviders, setMarketProviders] = useState<MarketProviderRow[]>([]);
+  const [eventProviders, setEventProviders] = useState<EventProviderRow[]>([]);
   const [message, setMessage] = useState("");
   const [marketMessage, setMarketMessage] = useState("");
+  const [eventMessage, setEventMessage] = useState("");
   const imported = loadImportedDataset();
   const summaries = imported.summaries;
 
@@ -42,9 +46,15 @@ export default function DataCenterPage() {
     }
   }
 
+  async function loadEventProviders() {
+    const rows = await fetchBackendEventProviders();
+    setEventProviders(rows.map((row) => ({ ...row, id: row.provider })));
+  }
+
   useEffect(() => {
     void loadSourceHealth();
     void fetchMarketProviders().then((rows) => setMarketProviders(rows.map((row) => ({ ...row, id: row.provider }))));
+    void loadEventProviders();
   }, []);
 
   async function refresh(sourceId?: string) {
@@ -94,6 +104,19 @@ export default function DataCenterPage() {
     { key: "error", header: "說明", accessor: (row) => <span className="text-amber-700">{row.errorMessage ?? "-"}</span>, searchValue: (row) => row.errorMessage ?? "" }
   ];
 
+  const eventColumns: Array<DataTableColumn<EventProviderRow>> = [
+    { key: "provider", header: "事件 Provider", accessor: (row) => <span className="font-semibold text-slate-950">{row.provider}</span>, searchValue: (row) => row.provider },
+    { key: "status", header: "狀態", accessor: (row) => <StatusBadge status={row.status as SourceHealth["status"]} />, sortValue: (row) => row.status },
+    { key: "events", header: "事件", accessor: (row) => row.supportsEvents ? "支援" : "不支援" },
+    { key: "revenue", header: "月營收", accessor: (row) => row.supportsMonthlyRevenue ? "支援" : "不支援" },
+    { key: "dividend", header: "股利", accessor: (row) => row.supportsDividends ? "支援" : "不支援" },
+    { key: "conference", header: "法說會", accessor: (row) => row.supportsInvestorConference ? "metadata" : "不支援" },
+    { key: "warning", header: "注意/處置", accessor: (row) => row.supportsAttentionDisposition ? "支援" : "不支援" },
+    { key: "token", header: "Token", accessor: (row) => row.tokenConfigured ? "已設定" : "未設定" },
+    { key: "records", header: "事件筆數", accessor: (row) => row.recordsFetched, sortValue: (row) => row.recordsFetched },
+    { key: "note", header: "說明", accessor: (row) => <span className="text-amber-700">{row.errorMessage ?? row.sourceNote}</span>, searchValue: (row) => `${row.errorMessage ?? ""} ${row.sourceNote}` }
+  ];
+
   async function testMarket(kind: "quote" | "kline") {
     setMarketMessage("正在測試 2330 市場資料...");
     try {
@@ -109,15 +132,27 @@ export default function DataCenterPage() {
     }
   }
 
+  async function testEvents() {
+    setEventMessage("正在測試後端事件 provider...");
+    try {
+      const rows = await fetchBackendEventProviders();
+      setEventProviders(rows.map((row) => ({ ...row, id: row.provider })));
+      const records = rows.reduce((sum, row) => sum + row.recordsFetched, 0);
+      setEventMessage(`事件 provider 測試完成：${rows.length} 個 provider，正式事件 ${records} 筆。若為 0，代表目前需使用 Imported / Manual / Demo fallback。`);
+    } catch {
+      setEventMessage("事件 provider 測試失敗；前端會保留 Imported / Manual / Demo fallback。");
+    }
+  }
+
   const qualityItems = [
     { label: "匯入事件", value: imported.events.length },
+    { label: "後端事件 Provider", value: eventProviders.length },
+    { label: "後端正式事件", value: eventProviders.reduce((sum, row) => sum + row.recordsFetched, 0) },
     { label: "股價快照", value: imported.priceSnapshots.length },
     { label: "法人籌碼", value: imported.institutionalFlows.length },
     { label: "注意 / 處置", value: imported.marketWarnings.length },
     { label: "月營收", value: imported.monthlyRevenues.length },
-    { label: "財報 / 股利", value: imported.earnings.length + imported.dividends.length },
-    { label: "題材 metadata", value: imported.themeNews.length },
-    { label: "ETF 調整", value: imported.etfRebalances.length }
+    { label: "財報 / 股利", value: imported.earnings.length + imported.dividends.length }
   ];
 
   return (
@@ -125,7 +160,7 @@ export default function DataCenterPage() {
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <p className="text-xs font-semibold tracking-[0.18em] text-emerald-700">DATA SOURCE CENTER</p>
         <h1 className="mt-2 text-2xl font-semibold text-slate-950">資料狀態中心</h1>
-        <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">管理 TWSE / TPEx / MOPS placeholder、CSV 匯入與 Demo fallback。官方資料讀取失敗時會顯示錯誤，不會造成白屏。</p>
+        <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">管理 TWSE / TPEx / MOPS placeholder、CSV 匯入、後端事件 provider 與 Demo fallback。官方資料讀取失敗時會顯示錯誤，不會造成白屏。</p>
       </section>
 
       <SectionCard title="資料源總覽" action={<button className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white" onClick={() => void refresh()}>刷新全部可用官方資料</button>}>
@@ -139,12 +174,17 @@ export default function DataCenterPage() {
         <MiniMetricGrid items={qualityItems} />
         <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
           <DataSourceBadge source="Official" />
-          <span>官方資料優先作為行情 / 基本資料來源。</span>
+          <span>官方與後端 provider 優先作為行情 / 事件 metadata 來源。</span>
           <DataSourceBadge source="Imported" />
-          <span>CSV 匯入優先於官方與示範資料。</span>
+          <span>CSV 匯入優先於示範資料。</span>
           <DataSourceBadge source="Demo" />
-          <span>Hybrid 模式會在缺資料時使用示範 fallback。</span>
+          <span>Hybrid 模式會在缺資料時使用示範 fallback，且不得假裝真實。</span>
         </div>
+      </SectionCard>
+
+      <SectionCard title="事件資料源" action={<button className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800" onClick={() => void testEvents()}>測試事件 Provider</button>}>
+        <DataTable rows={eventProviders} columns={eventColumns} emptyMessage="尚未取得事件 provider 狀態。" />
+        <p className="mt-3 text-sm text-amber-700">{eventMessage || "FinMind 事件 adapter 需要 token；MOPS / TWSE / TPEx 目前保守顯示 provider 狀態與 metadata，不做激進爬蟲。"}</p>
       </SectionCard>
 
       <SectionCard title="報價與 K 線資料源" action={<div className="flex flex-wrap gap-2"><button className="rounded-md border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm font-semibold text-cyan-800" onClick={() => void testMarket("quote")}>測試 2330 最新價</button><button className="rounded-md border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm font-semibold text-cyan-800" onClick={() => void testMarket("kline")}>測試 2330 日 K</button></div>}>
