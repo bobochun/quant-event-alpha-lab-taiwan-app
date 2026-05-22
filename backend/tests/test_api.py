@@ -130,6 +130,18 @@ def test_quant_analyze_batch():
     assert "warnings" in body["data"]
 
 
+def test_quant_modes_and_systematic_scan():
+    modes = client.get("/quant/modes")
+    scan = client.get("/quant/systematic-scan?mode=lowBase&symbols=2330,2382&interval=1d&range=1m")
+    assert modes.status_code == 200
+    assert scan.status_code == 200
+    assert modes.json()["ok"] is True
+    assert scan.json()["ok"] is True
+    assert any(row["mode"] == "lowBase" for row in modes.json()["data"])
+    assert "modeConfig" in scan.json()["data"]
+    assert "results" in scan.json()["data"]
+
+
 def test_research_cross_section():
     response = client.get("/research/cross-section?symbols=2330,2382")
     assert response.status_code == 200
