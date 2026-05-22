@@ -53,6 +53,68 @@ export type KLinePayload = {
   indicatorSource: string;
 };
 
+export type InstitutionalFlowData = {
+  symbol: string;
+  name: string;
+  tradeDate: string;
+  foreignNetBuyShares: number;
+  investmentTrustNetBuyShares: number;
+  dealerNetBuyShares: number;
+  totalInstitutionalNetBuyShares: number;
+  foreignConsecutiveDays: number;
+  investmentTrustConsecutiveDays: number;
+  dealerConsecutiveDays: number;
+  flowConfirmationScore: number;
+  flowBias: "accumulation" | "distribution" | "mixed" | "neutral" | "unknown";
+  warnings: string[];
+  provider: string;
+  dataSource: string;
+  sourceNote: string;
+  fetchedAt: string;
+};
+
+export type StockProfile = {
+  symbol: string;
+  name: string;
+  market: string;
+  industry?: string | null;
+  assetType: string;
+  themes: string[];
+  marketCapNote?: string | null;
+  liquidityNote?: string | null;
+  sourceNote: string;
+  dataSource: string;
+};
+
+export type TechnicalSummary = {
+  trendState: string;
+  momentumState: string;
+  overheatRisk: "low" | "medium" | "high" | "critical";
+  latestClose?: number | null;
+  ma5?: number | null;
+  ma20?: number | null;
+  ma60?: number | null;
+  rsi14?: number | null;
+  return20d?: number | null;
+  return60d?: number | null;
+  volatility20d?: number | null;
+  volumeRatio20d?: number | null;
+  warnings: string[];
+};
+
+export type MarketSummaryPayload = {
+  symbol: string;
+  name: string;
+  profile: StockProfile;
+  quote?: QuoteData | null;
+  technical?: TechnicalSummary | null;
+  institutionalFlow?: InstitutionalFlowData | null;
+  keyPoints: string[];
+  riskFlags: string[];
+  sourceNote: string;
+  generatedAt: string;
+};
+
 export type MarketProviderStatus = {
   provider: string;
   datasetType: string;
@@ -99,6 +161,30 @@ export async function fetchKLine(symbol: string, interval: MarketInterval, range
     return body.data as KLinePayload;
   } catch (error) {
     return demoKLine(symbol, interval, range, error instanceof Error ? error.message : "後端連線失敗");
+  }
+}
+
+export async function fetchMarketSummary(symbol: string): Promise<MarketSummaryPayload> {
+  try {
+    const response = await fetchWithTimeout(`${backendUrl}/market-data/summary/${encodeURIComponent(symbol)}`, 7000);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const body = await response.json();
+    if (!body.ok || !body.data) throw new Error(body.error ?? "後端沒有回傳個股摘要。");
+    return body.data as MarketSummaryPayload;
+  } catch (error) {
+    return demoMarketSummary(symbol, error instanceof Error ? error.message : "後端連線失敗");
+  }
+}
+
+export async function fetchInstitutionalFlow(symbol: string): Promise<InstitutionalFlowData> {
+  try {
+    const response = await fetchWithTimeout(`${backendUrl}/market-data/institutional-flow/${encodeURIComponent(symbol)}`, 5000);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const body = await response.json();
+    if (!body.ok || !body.data) throw new Error(body.error ?? "後端沒有回傳法人籌碼。");
+    return body.data as InstitutionalFlowData;
+  } catch (error) {
+    return demoInstitutionalFlow(symbol, error instanceof Error ? error.message : "後端連線失敗");
   }
 }
 
@@ -160,6 +246,60 @@ function demoQuote(symbol: string, reason: string): QuoteData {
     licenseNote: "前端示範 fallback，不是真實即時行情。",
     sourceNote: `後端不可用時的示範報價：${reason}`,
     fetchedAt: now.toISOString()
+  };
+}
+
+function demoInstitutionalFlow(symbol: string, reason: string): InstitutionalFlowData {
+  const base = basePrice(symbol);
+  const foreign = Math.round(((base % 7) - 3) * 650000);
+  const trust = Math.round(((base % 5) - 2) * 280000);
+  const dealer = Math.round(((base % 3) - 1) * 150000);
+  const total = foreign + trust + dealer;
+  return {
+    symbol,
+    name: names[symbol] ?? `${symbol} 台股標的`,
+    tradeDate: new Date().toISOString().slice(0, 10),
+    foreignNetBuyShares: foreign,
+    investmentTrustNetBuyShares: trust,
+    dealerNetBuyShares: dealer,
+    totalInstitutionalNetBuyShares: total,
+    foreignConsecutiveDays: foreign > 0 ? 2 : foreign < 0 ? -2 : 0,
+    investmentTrustConsecutiveDays: trust > 0 ? 3 : trust < 0 ? -1 : 0,
+    dealerConsecutiveDays: dealer > 0 ? 1 : dealer < 0 ? -1 : 0,
+    flowConfirmationScore: Math.max(0, Math.min(100, 50 + (foreign > 0 ? 15 : -10) + (trust > 0 ? 20 : -12) + (total > 0 ? 10 : -8))),
+    flowBias: total > 0 && foreign > 0 && trust > 0 ? "accumulation" : total < 0 ? "distribution" : "mixed",
+    warnings: [`前端 Demo 法人籌碼 fallback，不是真實外資/投信資料：${reason}`],
+    provider: "frontend-demo-flow",
+    dataSource: "Demo",
+    sourceNote: "Demo institutional flow fallback.",
+    fetchedAt: new Date().toISOString()
+  };
+}
+
+function demoMarketSummary(symbol: string, reason: string): MarketSummaryPayload {
+  const flow = demoInstitutionalFlow(symbol, reason);
+  return {
+    symbol,
+    name: names[symbol] ?? `${symbol} 台股標的`,
+    profile: {
+      symbol,
+      name: names[symbol] ?? `${symbol} 台股標的`,
+      market: "TWSE/TPEx/ETF",
+      industry: "Unknown",
+      assetType: symbol.startsWith("00") ? "ETF" : "stock",
+      themes: ["Market Watch"],
+      marketCapNote: "前端 fallback，尚未接官方市值資料。",
+      liquidityNote: "請用成交量與成交值確認流動性。",
+      sourceNote: `前端 fallback profile：${reason}`,
+      dataSource: "Demo"
+    },
+    quote: demoQuote(symbol, reason),
+    technical: null,
+    institutionalFlow: flow,
+    keyPoints: ["後端 summary 不可用，目前使用前端 fallback。", `法人籌碼 fallback 分數 ${flow.flowConfirmationScore}。`],
+    riskFlags: ["fallback 資料不可視為真實行情或法人買賣超。"],
+    sourceNote: `Frontend market summary fallback: ${reason}`,
+    generatedAt: new Date().toISOString()
   };
 }
 
