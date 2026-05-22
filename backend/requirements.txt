@@ -9,4 +9,5 @@ tenacity>=8.4.0
 apscheduler>=3.10.4
 pandas>=2.2.0
 numpy>=1.26.0
+yfinance>=0.2.54
 pytest>=8.2.0
