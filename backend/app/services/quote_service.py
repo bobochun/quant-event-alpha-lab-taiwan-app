@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import math
 import time
 
 from sqlalchemy import select
@@ -35,7 +36,7 @@ class QuoteService:
                 if quote:
                     self._cache[key] = (time.time(), quote)
                     if db:
-                        self._upsert_quote(db, quote)
+                        self._safe_upsert_quote(db, quote)
                     return quote
             except (ProviderUnavailable, UnsupportedInterval) as exc:
                 errors.append(f"{candidate.provider_name}: {exc}")
@@ -46,13 +47,22 @@ class QuoteService:
             quote.source_note = "所有正式 provider 不可用，已使用示範 fallback。原因：" + "；".join(errors[:3])
         self._cache[("demo", normalized)] = (time.time(), quote)
         if db:
-            self._upsert_quote(db, quote)
+            self._safe_upsert_quote(db, quote)
         return quote
 
     async def batch_latest(self, symbols: list[str], provider: ProviderKey = "auto", db: Session | None = None) -> list[QuoteData]:
         return [await self.latest(symbol, provider, db) for symbol in symbols if symbol.strip()]
 
+    def _safe_upsert_quote(self, db: Session, quote: QuoteData) -> None:
+        try:
+            self._upsert_quote(db, quote)
+        except Exception:
+            db.rollback()
+
     def _upsert_quote(self, db: Session, quote: QuoteData) -> None:
+        price = _finite_float(quote.price)
+        if price is None:
+            raise ValueError(f"Invalid quote price for {quote.symbol}: {quote.price}")
         existing = db.scalar(select(QuoteLatestModel).where(
             QuoteLatestModel.symbol == quote.symbol,
             QuoteLatestModel.provider == quote.provider,
@@ -61,15 +71,15 @@ class QuoteService:
         fetched_at = _parse_dt(quote.fetched_at)
         if existing:
             existing.name = quote.name
-            existing.price = quote.price
-            existing.previous_close = quote.previous_close
-            existing.change = quote.change
-            existing.change_percent = quote.change_percent
-            existing.open = quote.open
-            existing.high = quote.high
-            existing.low = quote.low
+            existing.price = price
+            existing.previous_close = _finite_float(quote.previous_close)
+            existing.change = _finite_float(quote.change)
+            existing.change_percent = _finite_float(quote.change_percent)
+            existing.open = _finite_float(quote.open)
+            existing.high = _finite_float(quote.high)
+            existing.low = _finite_float(quote.low)
             existing.volume = quote.volume
-            existing.value = quote.value
+            existing.value = _finite_float(quote.value)
             existing.quote_time = quote_time
             existing.data_source = quote.data_source
             existing.is_realtime = quote.is_realtime
@@ -81,15 +91,15 @@ class QuoteService:
             db.add(QuoteLatestModel(
                 symbol=quote.symbol,
                 name=quote.name,
-                price=quote.price,
-                previous_close=quote.previous_close,
-                change=quote.change,
-                change_percent=quote.change_percent,
-                open=quote.open,
-                high=quote.high,
-                low=quote.low,
+                price=price,
+                previous_close=_finite_float(quote.previous_close),
+                change=_finite_float(quote.change),
+                change_percent=_finite_float(quote.change_percent),
+                open=_finite_float(quote.open),
+                high=_finite_float(quote.high),
+                low=_finite_float(quote.low),
                 volume=quote.volume,
-                value=quote.value,
+                value=_finite_float(quote.value),
                 quote_time=quote_time,
                 provider=quote.provider,
                 data_source=quote.data_source,
@@ -103,6 +113,16 @@ class QuoteService:
 
 def clear_quote_cache() -> None:
     _SHARED_QUOTE_CACHE.clear()
+
+
+def _finite_float(value: float | int | None) -> float | None:
+    if value is None:
+        return None
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    return result if math.isfinite(result) else None
 
 
 def _parse_dt(value: str) -> datetime:
