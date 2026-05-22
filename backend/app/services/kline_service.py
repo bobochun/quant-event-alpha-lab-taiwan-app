@@ -13,12 +13,14 @@ from app.models.market import PriceBarModel
 from app.quant.indicators import attach_indicators
 from app.schemas.market import Interval, KLinePayload, PriceBar, ProviderKey, RangeKey
 
+_SHARED_KLINE_CACHE: dict[tuple[str, str, str, str, str], tuple[float, KLinePayload]] = {}
+
 
 class KLineService:
     def __init__(self, registry: ProviderRegistry | None = None, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
         self.registry = registry or ProviderRegistry(self.settings)
-        self._cache: dict[tuple[str, str, str, str], tuple[float, KLinePayload]] = {}
+        self._cache = _SHARED_KLINE_CACHE
 
     async def kline(
         self,
@@ -30,10 +32,11 @@ class KLineService:
         end_date: date | None = None,
         db: Session | None = None,
     ) -> KLinePayload:
+        normalized = symbol.strip()
         start, end = resolve_range(range_key, start_date, end_date)
-        cache_key = (symbol, interval, start.isoformat(), end.isoformat())
+        cache_key = (provider, normalized, interval, start.isoformat(), end.isoformat())
         cached = self._cache.get(cache_key)
-        if cached and (time.time() - cached[0]) < self.settings.market_data_cache_seconds:
+        if cached and (time.time() - cached[0]) < self.settings.kline_cache_seconds:
             return cached[1]
 
         errors: list[str] = []
@@ -42,25 +45,25 @@ class KLineService:
                 errors.append(f"{candidate.provider_name}: 不支援 {interval}")
                 continue
             try:
-                bars = await candidate.get_kline(symbol, interval, start, end)
+                bars = await candidate.get_kline(normalized, interval, start, end)
                 if bars:
-                    payload = self._build_payload(symbol, interval, range_key, bars, candidate.provider_name, candidate.data_source, candidate.is_realtime, candidate.delay_minutes, candidate.license_note)
+                    payload = self._build_payload(normalized, interval, range_key, bars, candidate.provider_name, candidate.data_source, candidate.is_realtime, candidate.delay_minutes, candidate.license_note)
                     self._cache[cache_key] = (time.time(), payload)
                     if db:
-                        self._insert_bars(db, symbol, security_name(symbol), interval, payload.bars, payload.provider, payload.data_source, payload.is_realtime, payload.delay_minutes)
+                        self._insert_bars(db, normalized, security_name(normalized), interval, payload.bars, payload.provider, payload.data_source, payload.is_realtime, payload.delay_minutes)
                     return payload
             except (ProviderUnavailable, UnsupportedInterval) as exc:
                 errors.append(f"{candidate.provider_name}: {exc}")
             except Exception as exc:
                 errors.append(f"{candidate.provider_name}: {exc}")
 
-        bars = demo_bars(symbol, start, end, interval)
-        payload = self._build_payload(symbol, interval, range_key, bars, "demo", "Demo", False, None, "示範 fallback，不是真實即時行情。")
+        bars = demo_bars(normalized, start, end, interval)
+        payload = self._build_payload(normalized, interval, range_key, bars, "demo", "Demo", False, None, "示範 fallback，不是真實即時行情。")
         if errors:
-            payload.license_note = "示範 fallback，不是真實即時行情。"
+            payload.license_note = "示範 fallback，不是真實即時行情。正式 provider 失敗或不支援此週期。"
         self._cache[cache_key] = (time.time(), payload)
         if db:
-            self._insert_bars(db, symbol, security_name(symbol), interval, payload.bars, payload.provider, payload.data_source, payload.is_realtime, payload.delay_minutes)
+            self._insert_bars(db, normalized, security_name(normalized), interval, payload.bars, payload.provider, payload.data_source, payload.is_realtime, payload.delay_minutes)
         return payload
 
     def _build_payload(
@@ -116,6 +119,10 @@ class KLineService:
             db.commit()
         except Exception:
             db.rollback()
+
+
+def clear_kline_cache() -> None:
+    _SHARED_KLINE_CACHE.clear()
 
 
 def resolve_range(range_key: RangeKey, start_date: date | None = None, end_date: date | None = None) -> tuple[date, date]:
