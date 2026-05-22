@@ -4,8 +4,10 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.schemas.common import ok_response
 from app.schemas.market import JobRunRequest, RefreshKLineRequest, RefreshQuotesRequest
+from app.schemas.source_digest import SourceDigestRequest
 from app.services.market_data_service import MarketDataService
 from app.services.research_service import ResearchService
+from app.services.source_digest_service import SourceDigestService
 
 router = APIRouter(tags=["market-data"])
 
@@ -46,4 +48,7 @@ async def run_job(request: JobRunRequest, db: Session = Depends(get_db)):
     if request.job_name == "theme_strength_scan":
         rows = await research.theme_strength(symbols)
         return ok_response({"jobName": request.job_name, "recordsProcessed": len(rows), "themes": [row.model_dump(by_alias=True) for row in rows]}, "Cached", "題材相對強弱掃描完成。")
-    return ok_response({"jobName": request.job_name, "recordsProcessed": 0}, "Missing", "未知 job_name；支援 refresh_latest_quotes、refresh_daily_kline、refresh_factor_scores、data_quality_check、theme_strength_scan。")
+    if request.job_name in {"source_digest_collect", "official_source_digest"}:
+        payload = await SourceDigestService().collect(SourceDigestRequest(symbols=symbols, sourceSet="official", maxPages=8, persist=True), db)
+        return ok_response({"jobName": request.job_name, "recordsProcessed": len(payload.items), "sources": [row.model_dump(by_alias=True) for row in payload.sources]}, "Cached", "官方來源摘要已彙整；只保存 metadata，不保存全文。")
+    return ok_response({"jobName": request.job_name, "recordsProcessed": 0}, "Missing", "未知 job_name；支援 refresh_latest_quotes、refresh_daily_kline、refresh_factor_scores、data_quality_check、theme_strength_scan、source_digest_collect。")
