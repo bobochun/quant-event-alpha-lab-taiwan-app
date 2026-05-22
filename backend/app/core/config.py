@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     app_env: str = "development"
     api_prefix: str = ""
 
-    database_url: str = "sqlite:///./backend/data/market_data.sqlite3"
+    database_url: str = "sqlite:///./data/market_data.sqlite3"
 
     cors_origins: str = (
         "http://localhost:3000,"
@@ -50,7 +50,7 @@ def get_settings() -> Settings:
         enable_official_data=os.getenv("ENABLE_OFFICIAL_DATA", "false").lower() == "true",
         enable_yfinance=os.getenv("ENABLE_YFINANCE", "true").lower() == "true",
         enable_demo_fallback=os.getenv("ENABLE_DEMO_FALLBACK", "true").lower() == "true",
-        database_url=os.getenv("DATABASE_URL", "sqlite:///./backend/data/market_data.sqlite3"),
+        database_url=os.getenv("DATABASE_URL", "sqlite:///./data/market_data.sqlite3"),
         cors_origins=os.getenv(
             "BACKEND_CORS_ORIGINS",
             "http://localhost:3000,http://127.0.0.1:3000",
