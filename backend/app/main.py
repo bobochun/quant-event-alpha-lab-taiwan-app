@@ -16,6 +16,7 @@ from app.api.routes_sources import router as sources_router
 from app.core.config import get_settings
 from app.core.cors import configure_cors
 from app.db.init_db import init_db
+from app.jobs.scheduler import create_scheduler
 from app.schemas.common import ok_response
 
 
@@ -25,6 +26,7 @@ configure_cors(app, settings)
 init_db()
 
 STARTED_AT = time.time()
+SCHEDULER = create_scheduler() if settings.enable_backend_scheduler else None
 
 app.include_router(quotes_router)
 app.include_router(kline_router)
@@ -35,6 +37,18 @@ app.include_router(source_digest_router)
 app.include_router(market_data_router)
 app.include_router(sources_router)
 app.include_router(events_router)
+
+
+@app.on_event("startup")
+async def startup_scheduler() -> None:
+    if SCHEDULER and not SCHEDULER.running:
+        SCHEDULER.start()
+
+
+@app.on_event("shutdown")
+async def shutdown_scheduler() -> None:
+    if SCHEDULER and SCHEDULER.running:
+        SCHEDULER.shutdown(wait=False)
 
 
 @app.get("/")
@@ -80,6 +94,16 @@ async def version():
 @app.get("/diagnostics")
 async def diagnostics():
     uptime_seconds = round(time.time() - STARTED_AT, 2)
+    scheduled_jobs = []
+    if SCHEDULER:
+        scheduled_jobs = [
+            {
+                "id": job.id,
+                "nextRunTime": job.next_run_time.isoformat() if job.next_run_time else None,
+                "trigger": str(job.trigger),
+            }
+            for job in SCHEDULER.get_jobs()
+        ]
 
     return ok_response(
         {
@@ -98,6 +122,12 @@ async def diagnostics():
                 "aiQuant": settings.enable_ai_quant,
                 "aiHasApiKey": bool(settings.openai_api_key.strip()),
                 "aiScoreInAlpha": settings.enable_ai_score_in_alpha,
+                "backendScheduler": settings.enable_backend_scheduler,
+            },
+            "scheduler": {
+                "enabled": settings.enable_backend_scheduler,
+                "symbols": settings.scheduler_symbol_list,
+                "jobs": scheduled_jobs,
             },
             "cache": {
                 "quoteCacheSeconds": settings.quote_cache_seconds,
