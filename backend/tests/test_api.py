@@ -130,6 +130,57 @@ def test_quant_analyze_batch():
     assert "warnings" in body["data"]
 
 
+def test_research_cross_section():
+    response = client.get("/research/cross-section?symbols=2330,2382")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert "ranks" in body["data"]
+    assert body["data"]["universeSize"] >= 1
+
+
+def test_research_theme_strength():
+    response = client.get("/research/theme-strength?symbols=2330,2382,2317")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert isinstance(body["data"], list)
+
+
+def test_research_data_quality():
+    response = client.get("/research/data-quality")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert isinstance(body["data"], list)
+    assert any(row["dataset"] == "price_bars" for row in body["data"])
+
+
+def test_research_trading_cost():
+    response = client.post("/research/trading-cost", json={"price": 100, "shares": 1000, "side": "roundTrip"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert body["data"]["totalCost"] > 0
+
+
+def test_research_portfolio_optimize():
+    response = client.post("/research/portfolio-optimize", json={"capital": 1000000, "symbols": ["2330", "2382"], "themeMap": {"AI server": ["2330", "2382"]}})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert "weights" in body["data"]
+
+
+def test_jobs_quant_scan_and_data_quality():
+    scan = client.post("/jobs/run", json={"jobName": "refresh_factor_scores", "symbols": ["2330", "2382"]})
+    quality = client.post("/jobs/run", json={"jobName": "data_quality_check", "symbols": ["2330"]})
+    assert scan.status_code == 200
+    assert quality.status_code == 200
+    assert scan.json()["ok"] is True
+    assert quality.json()["ok"] is True
+
+
 def test_indicators_calculation():
     closes = [float(value) for value in range(1, 31)]
     assert sma(closes, 5)[4] == 3.0
