@@ -1,8 +1,13 @@
 import asyncio
 
+from app.db.init_db import init_db
+from app.db.session import SessionLocal
+from app.models.market import FactorScoreModel, PriceBarModel
 from app.services.institutional_flow_service import normalize_finmind_rows
+from app.services.kline_service import KLineService, clear_kline_cache
 from app.services.market_warning_service import parse_warning_row
 from app.services.quote_service import QuoteService
+from app.services.research_service import ResearchService
 
 
 def test_quote_cache_guard():
@@ -11,6 +16,51 @@ def test_quote_cache_guard():
     second = asyncio.run(service.latest("2382"))
     assert first.symbol == second.symbol
     assert first.provider == second.provider
+
+
+def test_kline_persistence_is_idempotent():
+    init_db()
+    clear_kline_cache()
+    db = SessionLocal()
+    try:
+      symbol = "TSTKLINE"
+      db.query(PriceBarModel).filter(PriceBarModel.symbol == symbol).delete(synchronize_session=False)
+      db.commit()
+      service = KLineService()
+      first = asyncio.run(service.kline(symbol, "1d", "1m", "demo", db=db))
+      count_first = db.query(PriceBarModel).filter(PriceBarModel.symbol == symbol, PriceBarModel.interval == "1d", PriceBarModel.provider == first.provider).count()
+      clear_kline_cache()
+      second = asyncio.run(service.kline(symbol, "1d", "1m", "demo", db=db))
+      count_second = db.query(PriceBarModel).filter(PriceBarModel.symbol == symbol, PriceBarModel.interval == "1d", PriceBarModel.provider == second.provider).count()
+      assert count_first == len(first.bars)
+      assert count_second == len(second.bars)
+      assert count_second == count_first
+    finally:
+      db.query(PriceBarModel).filter(PriceBarModel.symbol == "TSTKLINE").delete(synchronize_session=False)
+      db.commit()
+      db.close()
+
+
+def test_factor_score_persistence_is_idempotent():
+    init_db()
+    db = SessionLocal()
+    try:
+      symbols = ["TSTF1", "TSTF2"]
+      db.query(FactorScoreModel).filter(FactorScoreModel.symbol.in_(symbols)).delete(synchronize_session=False)
+      db.commit()
+      service = ResearchService()
+      first = asyncio.run(service.cross_section(symbols, persist=True, db=db))
+      count_first = db.query(FactorScoreModel).filter(FactorScoreModel.symbol.in_(symbols), FactorScoreModel.model_version == "quant-v1").count()
+      second = asyncio.run(service.cross_section(symbols, persist=True, db=db))
+      count_second = db.query(FactorScoreModel).filter(FactorScoreModel.symbol.in_(symbols), FactorScoreModel.model_version == "quant-v1").count()
+      assert first.universe_size == 2
+      assert second.universe_size == 2
+      assert count_first == 2
+      assert count_second == 2
+    finally:
+      db.query(FactorScoreModel).filter(FactorScoreModel.symbol.in_(["TSTF1", "TSTF2"])).delete(synchronize_session=False)
+      db.commit()
+      db.close()
 
 
 def test_finmind_institutional_flow_normalization():
