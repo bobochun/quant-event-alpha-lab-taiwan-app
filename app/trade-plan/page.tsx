@@ -88,6 +88,9 @@ export default function TradePlanPage() {
   const alphaRow = buildAlphaEngineResults(relatedEvent ? [relatedEvent] : [], mockStocks, mockThemes)[0];
   const portfolioExposure = analyzePortfolioExposure(mockPortfolio);
   const themeConcentrationPct = Math.max(...Object.entries(portfolioExposure.themeExposure).filter(([theme]) => stock.themes.includes(theme)).map(([, value]) => value), 0);
+  const officialRisk = getOfficialRiskStatus(officialWarnings);
+  const riskAdjustedMaxPositionPct = getRiskAdjustedMaxPositionPct(form.maxPositionPct, officialWarnings);
+  const hasPositionCapAdjustment = riskAdjustedMaxPositionPct < form.maxPositionPct;
 
   async function checkOfficialWarnings(symbol: string) {
     setOfficialWarningMessage(`正在檢查 ${symbol} 是否為官方注意 / 處置標的...`);
@@ -96,7 +99,8 @@ export default function TradePlanPage() {
       setOfficialWarnings(payload.items);
       const providerProblems = payload.providerStatus.filter((row) => row.status === "error" || row.status === "degraded").map((row) => `${row.provider}: ${row.message ?? row.status}`);
       if (payload.items.length) {
-        setOfficialWarningMessage(`${symbol} 目前命中 ${payload.items.length} 筆官方注意 / 處置警示。建立交易計畫前請降低部位並檢查流動性。`);
+        const suggestedCap = getRiskAdjustedMaxPositionPct(form.maxPositionPct, payload.items);
+        setOfficialWarningMessage(`${symbol} 目前命中 ${payload.items.length} 筆官方注意 / 處置警示。建議單檔上限降至 ${suggestedCap}% 以內，並檢查流動性。`);
       } else {
         setOfficialWarningMessage(`${symbol} 未命中已設定 endpoint 的官方注意 / 處置資料。${providerProblems.length ? `提醒：${providerProblems.join("；")}` : payload.sourceNote}`);
       }
@@ -106,13 +110,21 @@ export default function TradePlanPage() {
     }
   }
 
+  function applyOfficialWarningCap() {
+    setForm((current) => ({ ...current, maxPositionPct: getRiskAdjustedMaxPositionPct(current.maxPositionPct, officialWarnings) }));
+  }
+
   function submit() {
     setError("");
     try {
       const officialDisposition = officialWarnings.some((row) => row.warningType === "disposition");
       const officialAttention = officialWarnings.some((row) => row.warningType === "attention");
-      const plan = generateTradePlan({
+      const effectiveForm = {
         ...form,
+        maxPositionPct: riskAdjustedMaxPositionPct
+      };
+      const plan = generateTradePlan({
+        ...effectiveForm,
         name: stock.name,
         eventDate: relatedEvent?.eventDate,
         dataSource: "Manual",
@@ -122,21 +134,25 @@ export default function TradePlanPage() {
         isAttentionStock: stock.isAttentionStock || officialAttention,
         isDispositionStock: stock.isDispositionStock || officialDisposition
       });
+      const officialCapWarning = hasPositionCapAdjustment
+        ? [`官方${officialDisposition ? "處置" : "注意"}警示命中，部位上限已由 ${form.maxPositionPct}% 下修為 ${riskAdjustedMaxPositionPct}%。`]
+        : [];
       const enrichedPlan = officialWarnings.length ? {
         ...plan,
         warnings: [
           ...plan.warnings,
+          ...officialCapWarning,
           ...officialWarnings.map((row) => `${row.symbol} ${row.name} 官方${row.warningType === "disposition" ? "處置" : row.warningType === "attention" ? "注意" : "警示"}：${row.reason}`)
         ],
         sourceNote: `${plan.sourceNote} 官方警示檢查：${officialWarningMessage}`
       } : plan;
       const regime = classifyMarketRegime(mockStocks);
       const sizing = calculateAdaptivePositionSize({
-        capital: form.capital,
-        entryPrice: form.entryPrice,
-        stopLoss: form.stopLoss,
-        riskPerTradePct: form.riskPerTradePct,
-        maxPositionPct: form.maxPositionPct,
+        capital: effectiveForm.capital,
+        entryPrice: effectiveForm.entryPrice,
+        stopLoss: effectiveForm.stopLoss,
+        riskPerTradePct: effectiveForm.riskPerTradePct,
+        maxPositionPct: effectiveForm.maxPositionPct,
         combinedAlphaScore: alphaRow?.alpha.combinedAlphaScore ?? 50,
         marketRegime: regime.regime,
         eventRisk: officialDisposition ? "critical" : officialAttention ? "high" : alphaRow?.pricedInRisk ?? "medium",
@@ -149,7 +165,7 @@ export default function TradePlanPage() {
       const next = [enrichedPlan, ...plans];
       setPlans(next);
       saveTradePlans(next);
-      setMarkdown(`${tradePlanToMarkdown(enrichedPlan)}\n\n## 官方注意 / 處置檢查\n\n${officialWarnings.length ? officialWarnings.map((row) => `- ${row.warningType} / ${row.severity}: ${row.reason} (${row.provider})`).join("\n") : `- ${officialWarningMessage}`}`);
+      setMarkdown(`${tradePlanToMarkdown(enrichedPlan)}\n\n## 官方注意 / 處置檢查\n\n${officialWarnings.length ? officialWarnings.map((row) => `- ${row.warningType} / ${row.severity}: ${row.reason} (${row.provider})`).join("\n") : `- ${officialWarningMessage}`}\n\n## 官方警示部位調整\n\n- 原始單檔上限：${form.maxPositionPct}%\n- 實際計算上限：${effectiveForm.maxPositionPct}%\n- 風險狀態：${officialRisk}`);
       setAdaptive(sizing);
       setLastPlanEventId(enrichedPlan.relatedEventId);
       markTradePlanCreated(enrichedPlan.relatedEventId);
@@ -172,7 +188,7 @@ export default function TradePlanPage() {
         eventType: relatedEvent?.eventType,
         price: form.entryPrice,
         shares: 0,
-        reason: officialWarnings.length ? `已建立交易計畫；官方警示：${officialWarnings.map((row) => row.warningType).join("、")}` : "已建立交易計畫。",
+        reason: officialWarnings.length ? `已建立交易計畫；官方警示：${officialWarnings.map((row) => row.warningType).join("、")}；建議上限 ${riskAdjustedMaxPositionPct}%` : "已建立交易計畫。",
         eventThesis: form.eventInvalidationRule,
         wasEventPricedIn: alphaRow?.pricedInRisk === "high" || alphaRow?.pricedInRisk === "critical",
         didChaseNews: false,
@@ -242,9 +258,10 @@ export default function TradePlanPage() {
               <span className="text-sm text-amber-700">{officialWarningMessage}</span>
             </div>
             {officialWarnings.length ? <div className="mt-3 grid gap-2">{officialWarnings.map((row) => <div key={`${row.provider}-${row.warningType}-${row.symbol}-${row.effectiveDate ?? row.fetchedAt}`} className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><div className="flex flex-wrap items-center gap-2"><RiskBadge level={row.severity} /><span className="font-semibold">{row.warningType === "disposition" ? "處置股" : row.warningType === "attention" ? "注意股" : "市場警示"}</span><span>{row.provider}</span></div><p className="mt-2 text-xs leading-5">{row.reason}</p></div>)}</div> : null}
+            {officialWarnings.length ? <div className="mt-3 rounded-md border border-amber-200 bg-white p-3 text-xs leading-5 text-amber-900"><div className="font-semibold">官方警示部位上限</div><p>目前輸入單檔上限：{form.maxPositionPct}%。建議用於計算的上限：{riskAdjustedMaxPositionPct}%。{officialRisk === "disposition" ? "處置股建議最多 8%。" : officialRisk === "attention" ? "注意股建議最多 12%。" : ""}</p>{hasPositionCapAdjustment ? <button className="mt-2 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white" onClick={applyOfficialWarningCap}>套用建議上限 {riskAdjustedMaxPositionPct}%</button> : null}</div> : null}
           </SectionCard>
 
-          <Step title="Step 2 設定資金與風險" note="先決定這筆研究最多能承受多少虧損。">
+          <Step title="Step 2 設定資金與風險" note="先決定這筆研究最多能承受多少虧損。若命中官方注意 / 處置，產生計畫時會用較低部位上限計算。">
             <NumberGrid form={form} setForm={setForm} keys={["capital", "riskPerTradePct", "maxPositionPct"]} labels={{ capital: "可用資金", riskPerTradePct: "單筆最大風險 %", maxPositionPct: "單檔最高部位 %" }} />
           </Step>
 
@@ -278,6 +295,7 @@ export default function TradePlanPage() {
               { label: "研究股數", value: form.entryPrice > form.stopLoss ? formatSharesLots(Math.floor((form.capital * (form.riskPerTradePct / 100)) / (form.entryPrice - form.stopLoss))) : "無法計算" },
               { label: "事件日期", value: relatedEvent?.eventDate ?? "未設定" },
               { label: "官方警示", value: officialWarnings.length ? `${officialWarnings.length} 筆` : "未命中" },
+              { label: "計算上限", value: `${riskAdjustedMaxPositionPct}%` },
               { label: "已反應風險", value: alphaRow ? formatNextAction(alphaRow.alpha.nextAction) : "無資料" },
               { label: "關聯狀態", value: lastPlanEventId ? "已建立計畫" : "尚未儲存" }
             ]} />
@@ -294,7 +312,7 @@ export default function TradePlanPage() {
                 ]} />
                 <WarningList warnings={adaptive.warnings} />
               </div>
-            ) : <p className="text-sm text-slate-500">產生交易計畫後，這裡會顯示自適應部位大小。</p>}
+            ) : <p className="text-sm text-slate-500">產生交易計畫後，這裡會顯示自適應部位大小。注意股 / 處置股會先下修部位上限。</p>}
           </SectionCard>
 
           <SectionCard title="Markdown 匯出">
@@ -308,6 +326,19 @@ export default function TradePlanPage() {
       </SectionCard>
     </div>
   );
+}
+
+function getOfficialRiskStatus(warnings: MarketWarningItem[]): "none" | "attention" | "disposition" {
+  if (warnings.some((row) => row.warningType === "disposition")) return "disposition";
+  if (warnings.some((row) => row.warningType === "attention")) return "attention";
+  return "none";
+}
+
+function getRiskAdjustedMaxPositionPct(currentMaxPositionPct: number, warnings: MarketWarningItem[]): number {
+  const risk = getOfficialRiskStatus(warnings);
+  if (risk === "disposition") return Math.min(currentMaxPositionPct, 8);
+  if (risk === "attention") return Math.min(currentMaxPositionPct, 12);
+  return currentMaxPositionPct;
 }
 
 function Step({ title, note, children }: { title: string; note: string; children: React.ReactNode }) {
