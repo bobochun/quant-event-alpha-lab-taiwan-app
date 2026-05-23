@@ -8,9 +8,20 @@ from app.schemas.common import ok_response
 from app.schemas.market import Interval, ProviderKey, RangeKey
 from app.schemas.quant import QuantMode
 from app.services.quant_analysis_service import QuantAnalysisService
+from app.services.quant_diagnostics_service import QuantDiagnosticsService
 from app.services.systematic_quant_service import SystematicQuantService
 
 router = APIRouter(tags=["quant"])
+
+
+@router.get("/quant/diagnostics")
+async def quant_diagnostics(db: Session = Depends(get_db)):
+    payload = QuantDiagnosticsService().diagnostics(db)
+    return ok_response(
+        payload.model_dump(by_alias=True),
+        "Cached",
+        f"量化資料就緒度 {payload.readiness_score} / {payload.readiness_level}。此診斷只評估資料可用性，不構成投資建議。",
+    )
 
 
 @router.get("/quant/analyze/{symbol}")
