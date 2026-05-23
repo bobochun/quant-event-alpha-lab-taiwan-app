@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 import platform
+import sys
 import time
 
 from fastapi import FastAPI
@@ -26,7 +27,8 @@ configure_cors(app, settings)
 init_db()
 
 STARTED_AT = time.time()
-SCHEDULER = create_scheduler() if settings.enable_backend_scheduler else None
+IS_PYTEST = "pytest" in sys.modules
+SCHEDULER = create_scheduler() if settings.enable_backend_scheduler and not IS_PYTEST else None
 
 app.include_router(quotes_router)
 app.include_router(kline_router)
@@ -122,10 +124,13 @@ async def diagnostics():
                 "aiQuant": settings.enable_ai_quant,
                 "aiHasApiKey": bool(settings.openai_api_key.strip()),
                 "aiScoreInAlpha": settings.enable_ai_score_in_alpha,
-                "backendScheduler": settings.enable_backend_scheduler,
+                "backendScheduler": bool(SCHEDULER),
+                "schedulerDisabledForPytest": IS_PYTEST,
             },
             "scheduler": {
-                "enabled": settings.enable_backend_scheduler,
+                "enabled": bool(SCHEDULER),
+                "configured": settings.enable_backend_scheduler,
+                "disabledForPytest": IS_PYTEST,
                 "symbols": settings.scheduler_symbol_list,
                 "jobs": scheduled_jobs,
             },
