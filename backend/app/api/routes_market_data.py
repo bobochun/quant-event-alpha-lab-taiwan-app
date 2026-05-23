@@ -72,9 +72,6 @@ async def run_job(request: JobRunRequest, db: Session = Depends(get_db)):
         flow_service = InstitutionalFlowService()
         rows = [await flow_service.latest_flow(symbol) for symbol in symbols]
         return ok_response({"jobName": request.job_name, "recordsProcessed": len(rows), "flows": [row.model_dump(by_alias=True) for row in rows]}, rows[0].data_source if rows else "Missing", "法人籌碼資料已刷新；若為 Demo fallback，請勿視為真實外資/投信資料。")
-    if request.job_name == "data_quality_check":
-        rows = await research.data_quality(db)
-        return ok_response({"jobName": request.job_name, "recordsProcessed": len(rows)}, "Cached", "資料品質檢查完成並嘗試寫入 data_quality_reports。")
     if request.job_name in {"ai_source_digest_analysis", "ai_daily_factor_refresh"}:
         payload = await AIQuantService().analyze_source_digest(AISourceDigestInput(symbols=symbols, themes=[], maxItems=8), db)
         return ok_response({"jobName": request.job_name, "recordsProcessed": len(payload.factors), "factors": [row.model_dump(by_alias=True) for row in payload.factors], "warnings": payload.warnings}, "Estimated", "AI source digest analysis completed. Uses OpenAI API only when configured; otherwise rule fallback is used.")
