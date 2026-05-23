@@ -5,7 +5,7 @@ import { buildAlphaEngineResults, calculateThemeHeat } from "../lib/alphaEngine"
 import { exportEventsCsv, exportFullBackupJson, exportJournalCsv, exportPortfolioCsv, exportTradePlansMarkdown, exportWeeklyReportMarkdown } from "../lib/exporters";
 import { mockEvents, mockJournal, mockPortfolio, mockSettings, mockStocks, mockThemes, mockTradePlans } from "../lib/mockData";
 import { exportAllData, loadEvents, loadJournal, loadPortfolio, loadTradePlans } from "../lib/storage";
-import type { Event, JournalEntry, Portfolio, ThemeHeatResult, TradePlan } from "../lib/types";
+import type { Event, JournalEntry, MarketWarningRecord, Portfolio, ThemeHeatResult, TradePlan } from "../lib/types";
 import { DataSourceBadge, SectionCard, WarningList } from "../components/ui";
 import { DEMO_SOURCE_NOTE } from "../lib/utils";
 import { loadImportedDataset, mergeDemoImportedManualEvents, mergeStocksWithImported } from "../lib/importers";
@@ -28,6 +28,21 @@ const reportLabels: Record<string, string> = {
 
 const defaultSymbols = "2330,2382,2317,2308,3017,3037,3231,2603,2615,2454";
 const inputClass = "rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-900 outline-none focus:border-cyan-500";
+
+type ReportWarningSeverity = "low" | "medium" | "high" | "critical" | "unknown";
+
+type NormalizedReportWarning = {
+  symbol: string;
+  name: string;
+  warningType: "attention" | "disposition" | "unknown";
+  reason: string;
+  severity: ReportWarningSeverity;
+  effectiveDate: string | null;
+  endDate: string | null;
+  dataSource: string;
+  provider: string;
+  sourceNote: string;
+};
 
 export default function ReportsPage() {
   const [type, setType] = useState("weekly");
@@ -169,21 +184,54 @@ function split(value: string): string[] { return value.split(/[\s,，]+/).map((i
 function mergeReportEvents(backend: Event[], current: Event[]): Event[] { const map = new Map<string, Event>(); [...current, ...backend].forEach((event) => map.set(`${event.symbol}|${event.eventType}|${event.eventDate}|${event.eventTitle}`, event)); return Array.from(map.values()); }
 function Metric({ label, value }: { label: string; value: number }) { return <div className="rounded-md border border-slate-200 bg-slate-50 p-3"><div className="text-xs text-slate-500">{label}</div><div className="mt-1 text-2xl font-semibold text-slate-950">{value}</div></div>; }
 function buildDataQualityNote(importedCount: number, backendEventsCount: number, quantCount: number, rows: DataQualityReport[], officialWarningsCount: number): string { return `後端事件 ${backendEventsCount} 筆、量化掃描 ${quantCount} 檔、資料品質 ${rows.length} 組、官方注意/處置警示 ${officialWarningsCount} 筆。${importedCount ? "包含使用者匯入 CSV 資料，請自行確認來源與正確性。" : "未偵測到匯入 CSV。"} ${rows.map((row) => `${row.dataset}:${Math.round(row.score)}`).join(" / ") || DEMO_SOURCE_NOTE}`; }
-function buildBackendSummary({ events, quantRows, themeStrength, dataQuality, officialWarnings, warnings }: { events: Event[]; quantRows: QuantAnalysisResult[]; themeStrength: ThemeStrengthRow[]; dataQuality: DataQualityReport[]; officialWarnings: ReportWarning[]; warnings: string[] }) {
-  return `# Backend Quant Data Summary\n\n資料時間：${new Date().toISOString()}\n\n## Events\n\n${events.length ? events.map((event) => `- ${event.eventDate} ${event.symbol} ${event.name} ${event.eventType}: ${event.eventTitle} (${event.dataSource})`).join("\n") : "- 後端目前沒有事件資料。"}\n\n## Quant Ranking\n\n${quantRows.length ? quantRows.sort((a, b) => b.quantScore - a.quantScore).map((row, index) => `${index + 1}. ${row.symbol} ${row.name} score=${Math.round(row.quantScore)} trend=${row.trendState} overheat=${row.overheatRisk} source=${row.provider}/${row.dataSource}`).join("\n") : "- 尚無後端量化掃描資料。"}\n\n## Theme Strength\n\n${themeStrength.length ? themeStrength.map((row) => `- #${row.rank} ${row.theme}: score=${Math.round(row.averageScore)}, symbols=${row.symbols.join(",")}, overheated=${row.overheatedCount}`).join("\n") : "- 尚無後端題材強弱資料。"}\n\n## Official Attention / Disposition\n\n${formatWarningsList(officialWarnings)}\n\n## Data Quality\n\n${dataQuality.length ? dataQuality.map((row) => `- ${row.dataset}/${row.provider}: score=${Math.round(row.score)}, missing=${row.missingRate}%, stale=${row.staleRate}%, error=${row.errorRate}%`).join("\n") : "- 尚無資料品質檢查結果。"}\n\n## Warnings\n\n${warnings.length ? warnings.map((warning) => `- ${warning}`).join("\n") : "- 無額外警示。"}\n\n> 本報告僅供個人研究，不構成投資建議。`;
+function buildBackendSummary({ events, quantRows, themeStrength, dataQuality, officialWarnings, warnings }: { events: Event[]; quantRows: QuantAnalysisResult[]; themeStrength: ThemeStrengthRow[]; dataQuality: DataQualityReport[]; officialWarnings: NormalizedReportWarning[]; warnings: string[] }) {
+  return `# Backend Quant Data Summary\n\n資料時間：${new Date().toISOString()}\n\n## Events\n\n${events.length ? events.map((event) => `- ${event.eventDate} ${event.symbol} ${event.name} ${event.eventType}: ${event.eventTitle} (${event.dataSource})`).join("\n") : "- 後端目前沒有事件資料。"}\n\n## Quant Ranking\n\n${quantRows.length ? [...quantRows].sort((a, b) => b.quantScore - a.quantScore).map((row, index) => `${index + 1}. ${row.symbol} ${row.name} score=${Math.round(row.quantScore)} trend=${row.trendState} overheat=${row.overheatRisk} source=${row.provider}/${row.dataSource}`).join("\n") : "- 尚無後端量化掃描資料。"}\n\n## Theme Strength\n\n${themeStrength.length ? themeStrength.map((row) => `- #${row.rank} ${row.theme}: score=${Math.round(row.averageScore)}, symbols=${row.symbols.join(",")}, overheated=${row.overheatedCount}`).join("\n") : "- 尚無後端題材強弱資料。"}\n\n## Official / Imported Attention & Disposition\n\n${formatWarningsList(officialWarnings)}\n\n## Data Quality\n\n${dataQuality.length ? dataQuality.map((row) => `- ${row.dataset}/${row.provider}: score=${Math.round(row.score)}, missing=${row.missingRate}%, stale=${row.staleRate}%, error=${row.errorRate}%`).join("\n") : "- 尚無資料品質檢查結果。"}\n\n## Warnings\n\n${warnings.length ? warnings.map((warning) => `- ${warning}`).join("\n") : "- 無額外警示。"}\n\n> 本報告僅供個人研究，不構成投資建議。`;
 }
 
-type ReportWarning = MarketWarningItem | { symbol: string; name: string; warningType?: string; reason?: string; severity?: string; effectiveDate?: string | null; dataSource?: string; sourceNote?: string };
-function mergeWarningRows(importedRows: unknown[], officialRows: MarketWarningItem[]): ReportWarning[] {
-  const rows = [...officialRows, ...importedRows as ReportWarning[]];
-  const map = new Map<string, ReportWarning>();
-  rows.forEach((row) => map.set(`${row.symbol}|${row.warningType ?? "unknown"}|${row.effectiveDate ?? ""}|${row.reason ?? ""}`, row));
-  return Array.from(map.values());
+function mergeWarningRows(importedRows: MarketWarningRecord[], officialRows: MarketWarningItem[]): NormalizedReportWarning[] {
+  const rows = [
+    ...officialRows.map(normalizeOfficialWarning),
+    ...importedRows.map(normalizeImportedWarning)
+  ];
+  const map = new Map<string, NormalizedReportWarning>();
+  rows.forEach((row) => map.set(`${row.symbol}|${row.warningType}|${row.effectiveDate ?? ""}|${row.reason}`, row));
+  return Array.from(map.values()).sort((a, b) => `${b.effectiveDate ?? ""}`.localeCompare(`${a.effectiveDate ?? ""}`));
 }
-function buildOfficialWarningsMarkdown(rows: ReportWarning[], note: string): string {
-  return `# Official Attention / Disposition Watch\n\n資料時間：${new Date().toISOString()}\n\n來源說明：${note}\n\n${formatWarningsList(rows)}\n\n> 注意股 / 處置股不代表一定下跌，但代表流動性、波動與追高風險升高。交易計畫需降低部位並確認停損。`;
+
+function normalizeOfficialWarning(row: MarketWarningItem): NormalizedReportWarning {
+  return {
+    symbol: row.symbol,
+    name: row.name,
+    warningType: row.warningType,
+    reason: row.reason || "官方警示資料，請至來源查證。",
+    severity: row.severity,
+    effectiveDate: row.effectiveDate ?? null,
+    endDate: row.endDate ?? null,
+    dataSource: row.dataSource,
+    provider: row.provider,
+    sourceNote: row.sourceNote
+  };
 }
-function formatWarningsList(rows: ReportWarning[]): string {
+
+function normalizeImportedWarning(row: MarketWarningRecord): NormalizedReportWarning {
+  return {
+    symbol: row.symbol,
+    name: row.name,
+    warningType: row.warningType,
+    reason: row.reason ?? "使用者匯入的注意 / 處置警示，請至原始來源查證。",
+    severity: row.warningType === "disposition" ? "high" : "medium",
+    effectiveDate: row.startDate,
+    endDate: row.endDate ?? null,
+    dataSource: row.dataSource,
+    provider: "imported-market-warning",
+    sourceNote: row.sourceNote
+  };
+}
+
+function buildOfficialWarningsMarkdown(rows: NormalizedReportWarning[], note: string): string {
+  return `# Official / Imported Attention & Disposition Watch\n\n資料時間：${new Date().toISOString()}\n\n來源說明：${note}\n\n${formatWarningsList(rows)}\n\n> 注意股 / 處置股不代表一定下跌，但代表流動性、波動與追高風險升高。交易計畫需降低部位並確認停損。`;
+}
+function formatWarningsList(rows: NormalizedReportWarning[]): string {
   if (!rows.length) return "- 目前沒有官方或匯入的注意股 / 處置股資料。若 endpoint 未設定，這裡會維持空白，不使用 Demo 冒充。";
-  return rows.map((row) => `- ${row.symbol} ${row.name}｜${row.warningType ?? "unknown"}｜severity=${row.severity ?? "unknown"}｜${row.effectiveDate ?? "日期未知"}｜${row.reason ?? "請至來源查證"}｜source=${row.dataSource ?? "Imported/Manual"}`).join("\n");
+  return rows.map((row) => `- ${row.symbol} ${row.name}｜${row.warningType}｜severity=${row.severity}｜${row.effectiveDate ?? "日期未知"}${row.endDate ? ` ~ ${row.endDate}` : ""}｜${row.reason}｜source=${row.provider}/${row.dataSource}`).join("\n");
 }
