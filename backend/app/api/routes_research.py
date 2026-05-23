@@ -48,10 +48,11 @@ async def portfolio_optimize(request: PortfolioOptimizeInput):
 
 
 @router.get("/research/walk-forward")
-async def walk_forward(symbols: str | None = Query(None)):
+async def walk_forward(symbols: str | None = Query(None), db: Session = Depends(get_db)):
     symbol_list = [item.strip() for item in symbols.split(",") if item.strip()] if symbols else None
-    result = await ResearchService().walk_forward(symbol_list)
-    return ok_response(result.model_dump(by_alias=True), "Estimated", result.source_note)
+    result = await ResearchService().walk_forward(symbol_list, db=db)
+    data_source = "Cached" if "factor_scores" in result.source_note else "Estimated"
+    return ok_response(result.model_dump(by_alias=True), data_source, result.source_note)
 
 
 @router.post("/research/trading-cost")
