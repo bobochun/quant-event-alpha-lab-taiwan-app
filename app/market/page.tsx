@@ -26,9 +26,13 @@ export default function MarketPage() {
 function MarketPageContent() {
   const searchParams = useSearchParams();
   const initialSymbol = searchParams.get("symbol") ?? "2330";
+  const defaultEndDate = new Date().toISOString().slice(0, 10);
+  const defaultStartDate = dateOffset(defaultEndDate, -365);
   const [symbol, setSymbol] = useState(initialSymbol);
   const [range, setRange] = useState<MarketRange>("1y");
   const [interval, setInterval] = useState<MarketInterval>("1d");
+  const [customStartDate, setCustomStartDate] = useState(defaultStartDate);
+  const [customEndDate, setCustomEndDate] = useState(defaultEndDate);
   const [quote, setQuote] = useState<QuoteData | null>(null);
   const [kline, setKline] = useState<KLinePayload | null>(null);
   const [summary, setSummary] = useState<MarketSummaryPayload | null>(null);
@@ -37,14 +41,16 @@ function MarketPageContent() {
   const [loading, setLoading] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [countdown, setCountdown] = useState(30);
+  const [customRangeMessage, setCustomRangeMessage] = useState("自訂區間會傳給後端 /kline startDate/endDate；若 provider 資料不足，只顯示可用資料。 ");
 
   const canAutoRefresh = supportsRealtimePolling(quote);
 
-  async function load(nextSymbol = symbol, nextInterval = interval, nextRange = range) {
+  async function load(nextSymbol = symbol, nextInterval = interval, nextRange = range, startDate = customStartDate, endDate = customEndDate) {
     setLoading(true);
+    const klineOptions = nextRange === "custom" ? { startDate, endDate } : {};
     const [quoteResult, klineResult, summaryResult, warningResult] = await Promise.all([
       fetchLatestQuote(nextSymbol),
-      fetchKLine(nextSymbol, nextInterval, nextRange),
+      fetchKLine(nextSymbol, nextInterval, nextRange, klineOptions),
       fetchMarketSummary(nextSymbol),
       fetchMarketWarnings([nextSymbol])
     ]);
@@ -75,7 +81,7 @@ function MarketPageContent() {
     }, 1000);
     return () => window.clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoRefresh, canAutoRefresh, symbol, interval, range]);
+  }, [autoRefresh, canAutoRefresh, symbol, interval, range, customStartDate, customEndDate]);
 
   const refreshNote = useMemo(() => {
     if (!quote) return "尚未取得資料。";
@@ -96,6 +102,20 @@ function MarketPageContent() {
   function changeInterval(nextInterval: MarketInterval) {
     setInterval(nextInterval);
     void load(symbol, nextInterval, range);
+  }
+
+  function applyCustomRange() {
+    if (!customStartDate || !customEndDate) {
+      setCustomRangeMessage("請輸入開始與結束日期。");
+      return;
+    }
+    if (customStartDate > customEndDate) {
+      setCustomRangeMessage("開始日期不可晚於結束日期。");
+      return;
+    }
+    setRange("custom");
+    setCustomRangeMessage(`已套用自訂區間：${customStartDate} ~ ${customEndDate}`);
+    void load(symbol, interval, "custom", customStartDate, customEndDate);
   }
 
   return (
@@ -132,6 +152,14 @@ function MarketPageContent() {
           <div>
             <div className="mb-2 text-xs font-semibold text-slate-500">股價區間</div>
             <RangeSelector value={range} onChange={changeRange} />
+            {range === "custom" ? (
+              <div className="mt-3 grid gap-2 rounded-md border border-cyan-100 bg-cyan-50 p-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+                <label className="grid gap-1 text-xs text-cyan-900">開始日期<input className="rounded-md border border-cyan-200 bg-white p-2 text-sm text-slate-900" type="date" value={customStartDate} onChange={(event) => setCustomStartDate(event.target.value)} /></label>
+                <label className="grid gap-1 text-xs text-cyan-900">結束日期<input className="rounded-md border border-cyan-200 bg-white p-2 text-sm text-slate-900" type="date" value={customEndDate} onChange={(event) => setCustomEndDate(event.target.value)} /></label>
+                <button className="rounded-md bg-cyan-700 px-3 py-2 text-sm font-semibold text-white" onClick={applyCustomRange}>套用自訂區間</button>
+              </div>
+            ) : null}
+            <p className="mt-2 text-xs leading-5 text-cyan-800">{customRangeMessage}</p>
           </div>
           <div>
             <div className="mb-2 text-xs font-semibold text-slate-500">K 線週期</div>
@@ -288,4 +316,10 @@ function translateFlow(value: string): string {
 
 function normalizeDataSource(value: string): DataSource {
   return DATA_SOURCES.includes(value as DataSource) ? value as DataSource : "Estimated";
+}
+
+function dateOffset(dateValue: string, offsetDays: number): string {
+  const date = new Date(`${dateValue}T00:00:00`);
+  date.setDate(date.getDate() + offsetDays);
+  return date.toISOString().slice(0, 10);
 }
