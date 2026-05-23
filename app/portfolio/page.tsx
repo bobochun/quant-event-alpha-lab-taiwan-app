@@ -10,6 +10,7 @@ import { formatCurrencyNTD, formatSharesLots, formatStrategy, localizeTheme } fr
 import { fetchLatestQuotes, type QuoteData } from "../lib/marketApi";
 
 const inputClass = "rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-900 outline-none focus:border-cyan-500";
+const DATA_SOURCES: DataSource[] = ["Real", "Official", "Cached", "Manual", "Imported", "Estimated", "Demo", "Missing", "Error"];
 
 export default function PortfolioPage() {
   const [portfolio, setPortfolio] = useState<Portfolio>(mockPortfolio);
@@ -36,7 +37,7 @@ export default function PortfolioPage() {
     ...portfolio,
     positions: portfolio.positions.map((position) => {
       const quote = quotes[position.symbol];
-      return quote ? { ...position, currentPrice: quote.price, dataSource: quote.dataSource as DataSource, sourceNote: quote.sourceNote } : position;
+      return quote ? { ...position, currentPrice: quote.price, dataSource: normalizeDataSource(quote.dataSource), sourceNote: quote.sourceNote } : position;
     }),
   }), [portfolio, quotes]);
   const exposure = useMemo(() => analyzePortfolioExposure(enrichedPortfolio), [enrichedPortfolio]);
@@ -63,7 +64,7 @@ export default function PortfolioPage() {
         ...target,
         positions: target.positions.map((position) => {
           const quote = map[position.symbol];
-          return quote ? { ...position, currentPrice: quote.price, dataSource: quote.dataSource as DataSource, sourceNote: quote.sourceNote } : position;
+          return quote ? { ...position, currentPrice: quote.price, dataSource: normalizeDataSource(quote.dataSource), sourceNote: quote.sourceNote } : position;
         }),
         updatedAt: new Date().toISOString(),
         dataSource: rows.some((quote) => quote.dataSource !== "Demo") ? "Cached" : "Demo",
@@ -93,7 +94,7 @@ export default function PortfolioPage() {
           currentPrice,
           tags: draft.tags.split(",").map((tag) => tag.trim()).filter(Boolean),
           relatedEventId: draft.relatedEventId || undefined,
-          dataSource: quote ? quote.dataSource as DataSource : "Manual",
+          dataSource: quote ? normalizeDataSource(quote.dataSource) : "Manual",
           sourceNote: quote ? quote.sourceNote : "手動建立的本機持股。"
         },
         ...portfolio.positions
@@ -210,4 +211,8 @@ function ExposureList({ title, data, localizeKey, strategyKey }: { title: string
       </div>
     </div>
   );
+}
+
+function normalizeDataSource(source: string): DataSource {
+  return DATA_SOURCES.includes(source as DataSource) ? source as DataSource : "Estimated";
 }
