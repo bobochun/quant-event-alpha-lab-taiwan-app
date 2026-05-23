@@ -5,6 +5,7 @@ import { analyzeBehaviorRisk, analyzePortfolioExposure } from "../lib/alphaEngin
 import { mockJournal, mockPortfolio, mockRiskAlerts } from "../lib/mockData";
 import { DataSourceBadge, RiskAlertPanel, SectionCard, WarningList } from "../components/ui";
 import { fetchBackendEvents } from "../lib/backendEventsApi";
+import { fetchMarketWarnings, type MarketWarningItem } from "../lib/marketApi";
 import { fetchSystematicScan, type SystematicQuantResult } from "../lib/quantApi";
 import { fetchDataQuality, type DataQualityReport } from "../lib/researchApi";
 import { loadJournal, loadPortfolio } from "../lib/storage";
@@ -18,7 +19,9 @@ export default function RiskCenterPage() {
   const [events, setEvents] = useState<Event[]>([]);
   const [quantRows, setQuantRows] = useState<SystematicQuantResult[]>([]);
   const [qualityRows, setQualityRows] = useState<DataQualityReport[]>([]);
-  const [message, setMessage] = useState("風控中心會優先使用後端事件、量化掃描、資料品質與本機投組/日誌；後端不可用時才使用 fallback。 ");
+  const [marketWarnings, setMarketWarnings] = useState<MarketWarningItem[]>([]);
+  const [marketWarningSourceNote, setMarketWarningSourceNote] = useState("官方注意股 / 處置股資料尚未載入。");
+  const [message, setMessage] = useState("風控中心會優先使用後端事件、量化掃描、官方警示、資料品質與本機投組/日誌；後端不可用時才使用 fallback。 ");
   const [warnings, setWarnings] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -30,22 +33,29 @@ export default function RiskCenterPage() {
     setLoading(true);
     setMessage("正在更新後端風控資料...");
     try {
-      const [eventPayload, scanPayload, dataQuality] = await Promise.all([
+      const [eventPayload, scanPayload, dataQuality, warningPayload] = await Promise.all([
         fetchBackendEvents({ days: 30, symbols }),
         fetchSystematicScan(symbols, "riskFirst", "1d", "1y"),
-        fetchDataQuality()
+        fetchDataQuality(),
+        fetchMarketWarnings(symbols)
       ]);
       setEvents(eventPayload.events);
       setQuantRows(scanPayload.results);
       setQualityRows(dataQuality);
-      setWarnings([...(eventPayload.error ? [eventPayload.error] : []), ...scanPayload.warnings]);
-      setMessage(`後端風控更新完成：事件 ${eventPayload.events.length} 筆、量化掃描 ${scanPayload.results.length} 檔、資料品質 ${dataQuality.length} 組。`);
+      setMarketWarnings(warningPayload.items);
+      setMarketWarningSourceNote(warningPayload.sourceNote);
+      const warningProviderMessages = warningPayload.providerStatus
+        .filter((row) => row.status === "error" || row.status === "degraded")
+        .map((row) => `${row.provider}: ${row.message ?? row.status}`);
+      setWarnings([...(eventPayload.error ? [eventPayload.error] : []), ...scanPayload.warnings, ...warningProviderMessages]);
+      setMessage(`後端風控更新完成：事件 ${eventPayload.events.length} 筆、量化掃描 ${scanPayload.results.length} 檔、資料品質 ${dataQuality.length} 組、官方警示 ${warningPayload.items.length} 筆。`);
     } catch (error) {
       setWarnings([error instanceof Error ? error.message : "後端風控資料取得失敗"]);
       setMessage("後端風控資料暫時不可用，目前僅顯示本機投組/日誌與 Demo fallback。 ");
       setEvents([]);
       setQuantRows([]);
       setQualityRows([]);
+      setMarketWarnings([]);
     } finally {
       setLoading(false);
     }
@@ -54,6 +64,7 @@ export default function RiskCenterPage() {
   useEffect(() => { void loadBackendRisks(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const eventAlerts = events.length ? buildEventAlerts(events, quantRows) : [];
+  const officialWarningAlerts = buildOfficialWarningAlerts(marketWarnings);
   const dataAlerts = buildDataAlerts(qualityRows);
   const quantAlerts = buildQuantAlerts(quantRows);
   const behaviorAlerts = behavior.warnings.map((text, index) => ({
@@ -67,7 +78,7 @@ export default function RiskCenterPage() {
     sourceNote: "由本機交易日誌產生。"
   }));
 
-  const alerts = [...eventAlerts, ...quantAlerts, ...portfolio.alerts, ...behaviorAlerts, ...dataAlerts, ...(events.length || quantRows.length ? [] : mockRiskAlerts)];
+  const alerts = [...eventAlerts, ...officialWarningAlerts, ...quantAlerts, ...portfolio.alerts, ...behaviorAlerts, ...dataAlerts, ...(events.length || quantRows.length || marketWarnings.length ? [] : mockRiskAlerts)];
 
   return (
     <div className="space-y-4">
@@ -76,20 +87,22 @@ export default function RiskCenterPage() {
           <div>
             <p className="text-xs font-semibold tracking-[0.18em] text-emerald-700">RISK CENTER</p>
             <h1 className="mt-2 text-2xl font-semibold text-slate-950">風控中心</h1>
-            <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">這裡不是找機會，而是防止大虧。事件、量化、投組、行為與資料品質都要能產生下一步。</p>
+            <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">這裡不是找機會，而是防止大虧。事件、量化、官方注意/處置、投組、行為與資料品質都要能產生下一步。</p>
           </div>
-          <div className="flex flex-wrap gap-2"><DataSourceBadge source={events.length || quantRows.length ? "Cached" : "Demo"} /><button className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={loading} onClick={() => void loadBackendRisks()}>{loading ? "更新中..." : "更新風控"}</button></div>
+          <div className="flex flex-wrap gap-2"><DataSourceBadge source={events.length || quantRows.length || marketWarnings.length ? "Cached" : "Demo"} /><button className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={loading} onClick={() => void loadBackendRisks()}>{loading ? "更新中..." : "更新風控"}</button></div>
         </div>
       </section>
 
       <SectionCard title="風控資料來源">
-        <div className="grid gap-3 md:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-5">
           <Metric label="後端事件" value={events.length} />
           <Metric label="量化掃描" value={quantRows.length} />
+          <Metric label="官方警示" value={marketWarnings.length} />
           <Metric label="資料品質" value={qualityRows.length} />
           <Metric label="警示總數" value={alerts.length} />
         </div>
         <p className="mt-3 text-sm text-amber-700">{message}</p>
+        <p className="mt-2 text-xs leading-5 text-slate-500">官方警示來源：{marketWarningSourceNote}</p>
         <WarningList warnings={warnings} />
         <label className="mt-3 grid gap-1 text-xs text-slate-500">風控股票池<textarea className={`${inputClass} min-h-20`} value={symbolsText} onChange={(event) => setSymbolsText(event.target.value)} /></label>
       </SectionCard>
@@ -121,6 +134,19 @@ function buildEventAlerts(events: Event[], quantRows: SystematicQuantResult[]): 
     }
     return alerts;
   }).slice(0, 16);
+}
+
+function buildOfficialWarningAlerts(rows: MarketWarningItem[]): RiskAlert[] {
+  return rows.map((row) => makeAlert(
+    `official-warning-${row.provider}-${row.warningType}-${row.symbol}-${row.effectiveDate ?? row.fetchedAt}`,
+    row.severity,
+    row.warningType === "disposition" ? "Position Risk" : "Event Risk",
+    row.symbol,
+    `${row.symbol} ${row.name} 被列為${row.warningType === "disposition" ? "處置股" : row.warningType === "attention" ? "注意股" : "市場警示標的"}：${row.reason}`,
+    row.warningType === "disposition" ? "降低部位、避免追高，檢查流動性與分盤撮合風險。" : "先檢查是否已過熱與量價異常，不宜只因事件追高。",
+    "Official",
+    row.sourceNote
+  ));
 }
 
 function buildQuantAlerts(rows: SystematicQuantResult[]): RiskAlert[] {
