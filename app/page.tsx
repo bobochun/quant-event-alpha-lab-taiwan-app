@@ -10,7 +10,7 @@ import { ActionList, CatalystTable, DataSourceBadge, MiniMetricGrid, SectionCard
 import { loadActionState, type ActionState } from "./lib/actionState";
 import { fetchBackendEvents } from "./lib/backendEventsApi";
 import { fetchBackendPriceSnapshots } from "./lib/backendMarketSnapshots";
-import { loadImportedDataset, mergeStocksWithImported } from "./lib/importers";
+import { defaultImportedDataset, loadImportedDataset, mergeStocksWithImported, type ImportedDataset } from "./lib/importers";
 import { recomputeEventScores } from "./lib/recomputeScores";
 import { loadEvents, loadSettings, saveSettings } from "./lib/storage";
 import type { AppSettings, Event, PriceSnapshot } from "./lib/types";
@@ -20,6 +20,8 @@ const defaultWidgets = ["market", "snapshot", "topTable", "actions", "themeHeat"
 export default function CommandCenterPage() {
   const [actionState, setActionState] = useState<ActionState | null>(null);
   const [settings, setSettings] = useState<AppSettings>(mockSettings);
+  const [imported, setImported] = useState<ImportedDataset>(defaultImportedDataset);
+  const [manualEvents, setManualEvents] = useState<Event[]>([]);
   const [backendEvents, setBackendEvents] = useState<Event[]>([]);
   const [backendEventNote, setBackendEventNote] = useState("正在嘗試由後端事件 API 取得月營收、除權息與官方 metadata...");
   const [backendSnapshots, setBackendSnapshots] = useState<PriceSnapshot[]>([]);
@@ -28,6 +30,8 @@ export default function CommandCenterPage() {
   useEffect(() => {
     setActionState(loadActionState());
     setSettings(loadSettings());
+    setImported(loadImportedDataset());
+    setManualEvents(loadEvents().filter((event) => event.dataSource === "Manual"));
     void fetchBackendEvents({ days: 30 }).then((result) => {
       setBackendEvents(result.events);
       setBackendEventNote(result.sourceNote || (result.events.length ? `後端事件 API 取得 ${result.events.length} 筆事件。` : "後端目前沒有正式事件，保留匯入 / 手動 / Demo fallback。"));
@@ -36,8 +40,6 @@ export default function CommandCenterPage() {
     });
   }, []);
 
-  const imported = loadImportedDataset();
-  const manualEvents = loadEvents().filter((event) => event.dataSource === "Manual");
   const events = mergeEventSources(backendEvents, imported.events, manualEvents, mockEvents);
 
   useEffect(() => {
