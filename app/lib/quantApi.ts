@@ -6,6 +6,7 @@ export type QuantRiskLevel = "low" | "medium" | "high" | "critical";
 export type QuantTrendState = "bullish" | "sideways" | "bearish" | "unknown";
 export type QuantMomentumState = "warming" | "hot" | "cooling" | "weak" | "unknown";
 export type QuantMode = "balanced" | "lowBase" | "momentumRotation" | "pullback" | "overheatAvoidance" | "riskFirst";
+export type QuantReadinessLevel = "ready" | "usable_with_warnings" | "limited" | "not_ready";
 
 export type QuantScoreBreakdown = {
   trendScore: number;
@@ -97,6 +98,32 @@ export type SystematicScanPayload = {
   warnings: string[];
   generatedAt: string;
 };
+
+export type QuantDatasetDiagnostic = {
+  dataset: string;
+  records: number;
+  demoRecords: number;
+  latestTimestamp?: string | null;
+  stalenessHours?: number | null;
+  status: "ok" | "stale" | "degraded" | "missing" | "error" | string;
+  warning?: string | null;
+};
+
+export type QuantDiagnosticsPayload = {
+  readinessScore: number;
+  readinessLevel: QuantReadinessLevel | string;
+  datasets: QuantDatasetDiagnostic[];
+  recommendations: string[];
+  generatedAt: string;
+};
+
+export async function fetchQuantDiagnostics(): Promise<QuantDiagnosticsPayload> {
+  const response = await fetchWithTimeout(`${backendUrl}/quant/diagnostics`, 8000);
+  if (!response.ok) throw new Error(`Quant diagnostics API HTTP ${response.status}`);
+  const body = await response.json();
+  if (!body.ok) throw new Error(body.error ?? "Quant diagnostics API error");
+  return body.data as QuantDiagnosticsPayload;
+}
 
 export async function fetchQuantAnalysis(symbol: string, interval = "1d", range = "1y"): Promise<QuantAnalysisResult> {
   const params = new URLSearchParams({ interval, range });
