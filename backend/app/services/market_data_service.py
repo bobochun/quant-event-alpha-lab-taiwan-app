@@ -1,4 +1,4 @@
-from app.schemas.market import ProviderKey, RefreshKLineRequest, RefreshQuotesRequest
+from app.schemas.market import RefreshKLineRequest, RefreshQuotesRequest
 from app.services.kline_service import KLineService
 from app.services.quote_service import QuoteService
 
@@ -12,4 +12,4 @@ class MarketDataService:
         return await self.quote_service.batch_latest(request.symbols, request.provider)
 
     async def refresh_kline(self, request: RefreshKLineRequest):
-        return await self.kline_service.kline(request.symbol, request.interval, request.range, request.provider)
+        return await self.kline_service.kline(request.symbol, request.interval, request.range, request.provider, request.start_date, request.end_date)
