@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import math
 from typing import Any
 
@@ -46,9 +46,9 @@ class InstitutionalFlowService:
 
     async def _finmind_flow(self, symbol: str) -> InstitutionalFlowData:
         # FinMind TaiwanStockInstitutionalInvestorsBuySell supports institutional investor buy/sell by date.
-        # The field names may vary by dataset version; normalize defensively.
+        # Fetch a wider window so consecutive-days logic is useful after weekends/holidays.
         today = datetime.now(timezone.utc).date()
-        start = today.replace(day=1).isoformat()
+        start = (today - timedelta(days=90)).isoformat()
         params = {
             "dataset": "TaiwanStockInstitutionalInvestorsBuySell",
             "data_id": symbol,
@@ -96,12 +96,16 @@ class InstitutionalFlowService:
 
 def normalize_finmind_rows(symbol: str, rows: list[dict[str, Any]]) -> InstitutionalFlowData:
     grouped: dict[str, dict[str, int]] = {}
-    for row in rows[-80:]:
-        trade_date = str(row.get("date") or row.get("trade_date") or datetime.now(timezone.utc).date().isoformat())[:10]
-        name = str(row.get("name") or row.get("institutional_investor") or row.get("type") or "")
-        buy = safe_int(row.get("buy") or row.get("buy_shares") or row.get("Buy"))
-        sell = safe_int(row.get("sell") or row.get("sell_shares") or row.get("Sell"))
-        net = safe_int(row.get("net_buy_sell") or row.get("buy_sell") or row.get("NetBuySell"), default=buy - sell)
+    parse_warnings: list[str] = []
+    for row in rows[-160:]:
+        trade_date = str(row.get("date") or row.get("trade_date") or row.get("TradeDate") or datetime.now(timezone.utc).date().isoformat())[:10]
+        name = str(row.get("name") or row.get("institutional_investor") or row.get("type") or row.get("InvestorType") or "")
+        buy = first_int(row, ["buy", "buy_shares", "Buy", "buy_volume"])
+        sell = first_int(row, ["sell", "sell_shares", "Sell", "sell_volume"])
+        net_raw = first_present(row, ["net_buy_sell", "buy_sell", "NetBuySell", "net", "diff"])
+        net = safe_int(net_raw, default=(buy or 0) - (sell or 0))
+        if not name:
+            parse_warnings.append("有 FinMind 法人列缺少 investor type，已暫歸類為外資。")
         bucket = investor_bucket(name)
         if bucket not in grouped:
             grouped[bucket] = {}
@@ -112,6 +116,10 @@ def normalize_finmind_rows(symbol: str, rows: list[dict[str, Any]]) -> Instituti
     trust = grouped.get("investment_trust", {}).get(latest_date, 0)
     dealer = grouped.get("dealer", {}).get(latest_date, 0)
     total = foreign + trust + dealer
+    warnings = sorted(set(parse_warnings))
+    stale_days = days_since(latest_date)
+    if stale_days is not None and stale_days > 10:
+        warnings.append(f"FinMind 最新法人資料日期為 {latest_date}，距今 {stale_days} 天，可能不夠新。")
     return InstitutionalFlowData(
         symbol=symbol,
         name=security_name(symbol),
@@ -125,7 +133,7 @@ def normalize_finmind_rows(symbol: str, rows: list[dict[str, Any]]) -> Instituti
         dealerConsecutiveDays=consecutive_from_series(grouped.get("dealer", {}), latest_date),
         flowConfirmationScore=calculate_flow_score(foreign, trust, dealer, total),
         flowBias=classify_flow_bias(foreign, trust, dealer, total),
-        warnings=[],
+        warnings=warnings,
         provider="finmind-flow",
         dataSource="Official",
         sourceNote="FinMind institutional buy/sell dataset. Verify dataset permission, freshness, and field definitions before research use.",
@@ -135,13 +143,27 @@ def normalize_finmind_rows(symbol: str, rows: list[dict[str, Any]]) -> Instituti
 
 def investor_bucket(name: str) -> str:
     lowered = name.lower()
-    if "投信" in name or "investment" in lowered:
+    if "投信" in name or "investment" in lowered or "trust" in lowered:
         return "investment_trust"
     if "自營" in name or "dealer" in lowered:
         return "dealer"
     if "外資" in name or "foreign" in lowered:
         return "foreign"
     return "foreign"
+
+
+def first_present(row: dict[str, Any], keys: list[str]) -> Any:
+    for key in keys:
+        if key in row and row[key] is not None and row[key] != "":
+            return row[key]
+    return None
+
+
+def first_int(row: dict[str, Any], keys: list[str]) -> int | None:
+    value = first_present(row, keys)
+    if value is None:
+        return None
+    return safe_int(value)
 
 
 def safe_int(value: Any, default: int = 0) -> int:
@@ -199,3 +221,11 @@ def classify_flow_bias(foreign: int, trust: int, dealer: int, total: int) -> str
     if total == 0:
         return "neutral"
     return "unknown"
+
+
+def days_since(value: str) -> int | None:
+    try:
+        parsed = datetime.fromisoformat(value[:10]).date()
+    except Exception:
+        return None
+    return (datetime.now(timezone.utc).date() - parsed).days
