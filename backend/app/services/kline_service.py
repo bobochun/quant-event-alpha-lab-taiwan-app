@@ -96,26 +96,40 @@ class KLineService:
         )
 
     def _insert_bars(self, db: Session, symbol: str, name: str, interval: str, bars: list[PriceBar], provider: str, data_source: str, is_realtime: bool, delay_minutes: int | None) -> None:
+        if not bars:
+            return
         fetched_at = datetime.now(timezone.utc)
-        for bar in bars:
-            db.add(PriceBarModel(
-                symbol=symbol,
-                name=name,
-                interval=interval,
-                date_time=_parse_dt(bar.time),
-                open=bar.open,
-                high=bar.high,
-                low=bar.low,
-                close=bar.close,
-                volume=bar.volume,
-                value=bar.value,
-                provider=provider,
-                data_source=data_source,
-                is_realtime=is_realtime,
-                delay_minutes=delay_minutes,
-                fetched_at=fetched_at,
-            ))
+        parsed_times = [_parse_dt(bar.time) for bar in bars]
+        min_time = min(parsed_times)
+        max_time = max(parsed_times)
         try:
+            # Idempotent refresh: remove the same symbol/interval/provider/date window before inserting.
+            # This avoids UniqueConstraint rollbacks when scheduled quant jobs refresh the same K-line window repeatedly.
+            db.query(PriceBarModel).filter(
+                PriceBarModel.symbol == symbol,
+                PriceBarModel.interval == interval,
+                PriceBarModel.provider == provider,
+                PriceBarModel.date_time >= min_time,
+                PriceBarModel.date_time <= max_time,
+            ).delete(synchronize_session=False)
+            for bar, parsed_time in zip(bars, parsed_times):
+                db.add(PriceBarModel(
+                    symbol=symbol,
+                    name=name,
+                    interval=interval,
+                    date_time=parsed_time,
+                    open=bar.open,
+                    high=bar.high,
+                    low=bar.low,
+                    close=bar.close,
+                    volume=bar.volume,
+                    value=bar.value,
+                    provider=provider,
+                    data_source=data_source,
+                    is_realtime=is_realtime,
+                    delay_minutes=delay_minutes,
+                    fetched_at=fetched_at,
+                ))
             db.commit()
         except Exception:
             db.rollback()
