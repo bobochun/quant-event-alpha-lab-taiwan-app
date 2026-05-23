@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -165,6 +165,8 @@ class RefreshKLineRequest(BaseModel):
     interval: Interval = "1d"
     range: RangeKey = "1y"
     provider: ProviderKey = "auto"
+    start_date: date | None = Field(None, alias="startDate")
+    end_date: date | None = Field(None, alias="endDate")
 
 
 class JobRunRequest(BaseModel):
