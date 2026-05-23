@@ -274,7 +274,6 @@ function mergeEventSources(backend: Event[], imported: Event[], manual: Event[],
 
 function toMarketWarningRecord(row: MarketWarningItem): MarketWarningRecord {
   return {
-    id: `backend-warning-${row.provider}-${row.warningType}-${row.symbol}-${row.effectiveDate ?? row.fetchedAt}`,
     symbol: row.symbol,
     name: row.name,
     warningType: row.warningType === "disposition" ? "disposition" : "attention",
