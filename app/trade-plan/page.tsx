@@ -1,31 +1,47 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { mockEvents, mockPortfolio, mockStocks, mockThemes, mockTradePlans } from "../lib/mockData";
 import { analyzePortfolioExposure, buildAlphaEngineResults, classifyMarketRegime } from "../lib/alphaEngine";
 import { calculateAdaptivePositionSize } from "../lib/positionSizing";
 import { loadJournal, loadTradePlans, saveJournal, saveTradePlans } from "../lib/storage";
 import { generateTradePlan, tradePlanToMarkdown } from "../lib/tradePlan";
-import type { PositionSizingResult, StrategyName } from "../lib/types";
-import { ErrorState, MiniMetricGrid, SectionCard, TradePlanCard, WarningList } from "../components/ui";
-import { daysBetween, todayTaipei } from "../lib/utils";
+import type { Event, PositionSizingResult, StrategyName } from "../lib/types";
+import { ErrorState, MiniMetricGrid, RiskBadge, SectionCard, TradePlanCard, WarningList } from "../components/ui";
+import { daysBetween, formatNextAction, formatSharesLots, formatStrategy, todayTaipei } from "../lib/utils";
+import { markJournalLinked, markTradePlanCreated } from "../lib/actionState";
+import { loadSelectedEvent } from "../lib/navigationState";
+import { fetchLatestQuote, fetchMarketWarnings, type MarketWarningItem } from "../lib/marketApi";
 
 const strategies: StrategyName[] = ["Pre-Earnings Drift", "ETF Rebalance Flow", "AI Theme Rotation", "Low Base Catalyst", "Event Pullback", "Manual Event Research"];
-const numberLabels = {
-  capital: "Capital",
-  riskPerTradePct: "Risk per trade %",
-  maxPositionPct: "Max position %",
-  entryPrice: "Entry price",
-  stopLoss: "Stop loss",
-  takeProfit1: "Take profit 1",
-  takeProfit2: "Take profit 2"
-} as const;
+const inputClass = "mt-1 w-full rounded-md border border-slate-200 bg-white p-2 text-slate-900 outline-none focus:border-cyan-500";
+type FormState = {
+  symbol: string;
+  strategy: StrategyName;
+  relatedEventId: string;
+  capital: number;
+  riskPerTradePct: number;
+  maxPositionPct: number;
+  entryPrice: number;
+  stopLoss: number;
+  takeProfit1: number;
+  takeProfit2: number;
+  eventInvalidationRule: string;
+  timeStopRule: string;
+};
+type NumericFormKey = "capital" | "riskPerTradePct" | "maxPositionPct" | "entryPrice" | "stopLoss" | "takeProfit1" | "takeProfit2";
 
 export default function TradePlanPage() {
   const [plans, setPlans] = useState(mockTradePlans);
   const [error, setError] = useState("");
   const [markdown, setMarkdown] = useState("");
   const [adaptive, setAdaptive] = useState<PositionSizingResult | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
+  const [lastPlanEventId, setLastPlanEventId] = useState<string | undefined>();
+  const [quoteMessage, setQuoteMessage] = useState("");
+  const [officialWarnings, setOfficialWarnings] = useState<MarketWarningItem[]>([]);
+  const [officialWarningMessage, setOfficialWarningMessage] = useState("官方注意股 / 處置股尚未檢查。");
   const [form, setForm] = useState({
     symbol: "2330",
     strategy: "Low Base Catalyst" as StrategyName,
@@ -37,17 +53,19 @@ export default function TradePlanPage() {
     stopLoss: 884,
     takeProfit1: 990,
     takeProfit2: 1040,
-    eventInvalidationRule: "If the event thesis fails or price breaks stop loss, review and reduce risk.",
-    timeStopRule: "If there is no follow-through within 3 trading days after the event, reduce risk."
+    eventInvalidationRule: "若事件假設失效或跌破停損，必須重新檢查。",
+    timeStopRule: "若事件後 3 個交易日內沒有延續，降低風險或移出高優先研究。"
   });
 
-  useEffect(() => setPlans(loadTradePlans()), []);
   useEffect(() => {
+    setPlans(loadTradePlans());
     const params = new URLSearchParams(window.location.search);
     const eventId = params.get("eventId");
     const symbol = params.get("symbol");
-    const event = mockEvents.find((item) => item.id === eventId);
-    const stock = mockStocks.find((item) => item.symbol === symbol);
+    const navState = loadSelectedEvent();
+    const event = navState?.event.id === eventId ? navState.event : mockEvents.find((item) => item.id === eventId);
+    const stock = mockStocks.find((item) => item.symbol === (symbol ?? event?.symbol));
+    if (event) setSelectedEvent(event);
     if (event || stock) {
       setForm((current) => ({
         ...current,
@@ -61,49 +79,98 @@ export default function TradePlanPage() {
     }
   }, []);
 
+  useEffect(() => {
+    void checkOfficialWarnings(form.symbol);
+  }, [form.symbol]);
+
   const stock = mockStocks.find((item) => item.symbol === form.symbol) ?? mockStocks[0];
-  const relatedEvent = mockEvents.find((event) => event.id === form.relatedEventId);
+  const relatedEvent = selectedEvent?.id === form.relatedEventId ? selectedEvent : mockEvents.find((event) => event.id === form.relatedEventId);
   const alphaRow = buildAlphaEngineResults(relatedEvent ? [relatedEvent] : [], mockStocks, mockThemes)[0];
   const portfolioExposure = analyzePortfolioExposure(mockPortfolio);
   const themeConcentrationPct = Math.max(...Object.entries(portfolioExposure.themeExposure).filter(([theme]) => stock.themes.includes(theme)).map(([, value]) => value), 0);
+  const officialRisk = getOfficialRiskStatus(officialWarnings);
+  const riskAdjustedMaxPositionPct = getRiskAdjustedMaxPositionPct(form.maxPositionPct, officialWarnings);
+  const hasPositionCapAdjustment = riskAdjustedMaxPositionPct < form.maxPositionPct;
+
+  async function checkOfficialWarnings(symbol: string) {
+    setOfficialWarningMessage(`正在檢查 ${symbol} 是否為官方注意 / 處置標的...`);
+    try {
+      const payload = await fetchMarketWarnings([symbol]);
+      setOfficialWarnings(payload.items);
+      const providerProblems = payload.providerStatus.filter((row) => row.status === "error" || row.status === "degraded").map((row) => `${row.provider}: ${row.message ?? row.status}`);
+      if (payload.items.length) {
+        const suggestedCap = getRiskAdjustedMaxPositionPct(form.maxPositionPct, payload.items);
+        setOfficialWarningMessage(`${symbol} 目前命中 ${payload.items.length} 筆官方注意 / 處置警示。建議單檔上限降至 ${suggestedCap}% 以內，並檢查流動性。`);
+      } else {
+        setOfficialWarningMessage(`${symbol} 未命中已設定 endpoint 的官方注意 / 處置資料。${providerProblems.length ? `提醒：${providerProblems.join("；")}` : payload.sourceNote}`);
+      }
+    } catch {
+      setOfficialWarnings([]);
+      setOfficialWarningMessage("官方注意 / 處置資料檢查失敗；不使用 Demo 冒充官方警示。 ");
+    }
+  }
+
+  function applyOfficialWarningCap() {
+    setForm((current) => ({ ...current, maxPositionPct: getRiskAdjustedMaxPositionPct(current.maxPositionPct, officialWarnings) }));
+  }
 
   function submit() {
     setError("");
     try {
-      const plan = generateTradePlan({
+      const officialDisposition = officialWarnings.some((row) => row.warningType === "disposition");
+      const officialAttention = officialWarnings.some((row) => row.warningType === "attention");
+      const effectiveForm = {
         ...form,
+        maxPositionPct: riskAdjustedMaxPositionPct
+      };
+      const plan = generateTradePlan({
+        ...effectiveForm,
         name: stock.name,
         eventDate: relatedEvent?.eventDate,
         dataSource: "Manual",
         eventDateDistanceDays: relatedEvent ? daysBetween(todayTaipei(), relatedEvent.eventDate) : undefined,
         preEventReturnPct: stock.sevenDayReturnPct,
         confidence: relatedEvent?.confidence,
-        isAttentionStock: stock.isAttentionStock,
-        isDispositionStock: stock.isDispositionStock
+        isAttentionStock: stock.isAttentionStock || officialAttention,
+        isDispositionStock: stock.isDispositionStock || officialDisposition
       });
+      const officialCapWarning = hasPositionCapAdjustment
+        ? [`官方${officialDisposition ? "處置" : "注意"}警示命中，部位上限已由 ${form.maxPositionPct}% 下修為 ${riskAdjustedMaxPositionPct}%。`]
+        : [];
+      const enrichedPlan = officialWarnings.length ? {
+        ...plan,
+        warnings: [
+          ...plan.warnings,
+          ...officialCapWarning,
+          ...officialWarnings.map((row) => `${row.symbol} ${row.name} 官方${row.warningType === "disposition" ? "處置" : row.warningType === "attention" ? "注意" : "警示"}：${row.reason}`)
+        ],
+        sourceNote: `${plan.sourceNote} 官方警示檢查：${officialWarningMessage}`
+      } : plan;
       const regime = classifyMarketRegime(mockStocks);
       const sizing = calculateAdaptivePositionSize({
-        capital: form.capital,
-        entryPrice: form.entryPrice,
-        stopLoss: form.stopLoss,
-        riskPerTradePct: form.riskPerTradePct,
-        maxPositionPct: form.maxPositionPct,
+        capital: effectiveForm.capital,
+        entryPrice: effectiveForm.entryPrice,
+        stopLoss: effectiveForm.stopLoss,
+        riskPerTradePct: effectiveForm.riskPerTradePct,
+        maxPositionPct: effectiveForm.maxPositionPct,
         combinedAlphaScore: alphaRow?.alpha.combinedAlphaScore ?? 50,
         marketRegime: regime.regime,
-        eventRisk: alphaRow?.pricedInRisk ?? "medium",
+        eventRisk: officialDisposition ? "critical" : officialAttention ? "high" : alphaRow?.pricedInRisk ?? "medium",
         portfolioExposurePct: portfolioExposure.investedPct,
         themeConcentrationPct,
         volatility20d: stock.volatility20d,
         confidence: relatedEvent?.confidence ?? 50,
         dataQuality: relatedEvent?.confidence ?? 50
       });
-      const next = [plan, ...plans];
+      const next = [enrichedPlan, ...plans];
       setPlans(next);
       saveTradePlans(next);
-      setMarkdown(tradePlanToMarkdown(plan));
+      setMarkdown(`${tradePlanToMarkdown(enrichedPlan)}\n\n## 官方注意 / 處置檢查\n\n${officialWarnings.length ? officialWarnings.map((row) => `- ${row.warningType} / ${row.severity}: ${row.reason} (${row.provider})`).join("\n") : `- ${officialWarningMessage}`}\n\n## 官方警示部位調整\n\n- 原始單檔上限：${form.maxPositionPct}%\n- 實際計算上限：${effectiveForm.maxPositionPct}%\n- 風險狀態：${officialRisk}`);
       setAdaptive(sizing);
+      setLastPlanEventId(enrichedPlan.relatedEventId);
+      markTradePlanCreated(enrichedPlan.relatedEventId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to generate plan.");
+      setError(err instanceof Error ? err.message : "無法產生交易計畫。");
     }
   }
 
@@ -121,68 +188,171 @@ export default function TradePlanPage() {
         eventType: relatedEvent?.eventType,
         price: form.entryPrice,
         shares: 0,
-        reason: "Trade plan created.",
+        reason: officialWarnings.length ? `已建立交易計畫；官方警示：${officialWarnings.map((row) => row.warningType).join("、")}；建議上限 ${riskAdjustedMaxPositionPct}%` : "已建立交易計畫。",
         eventThesis: form.eventInvalidationRule,
-        wasEventPricedIn: false,
+        wasEventPricedIn: alphaRow?.pricedInRisk === "high" || alphaRow?.pricedInRisk === "critical",
         didChaseNews: false,
         planFollowed: true,
         emotion: "disciplined",
         dataSource: "Manual",
-        sourceNote: "Manual journal note from trade plan."
+        sourceNote: officialWarnings.length ? `由交易計畫建立的手動日誌。官方警示：${officialWarningMessage}` : "由交易計畫建立的手動日誌。"
       },
       ...journal
     ]);
+    markJournalLinked(form.relatedEventId);
+  }
+
+  async function handleLatestPrice() {
+    setQuoteMessage("正在取得最新價...");
+    const quote = await fetchLatestQuote(form.symbol);
+    setForm((current) => ({
+      ...current,
+      entryPrice: quote.price,
+      stopLoss: Number((quote.price * 0.94).toFixed(2)),
+      takeProfit1: Number((quote.price * 1.07).toFixed(2)),
+      takeProfit2: Number((quote.price * 1.13).toFixed(2))
+    }));
+    setQuoteMessage(`已帶入 ${quote.symbol} / ${quote.name} 最新價 NT$ ${quote.price.toLocaleString("zh-TW")}。來源：${quote.provider} / ${quote.dataSource}。請自行確認價格與流動性，最新價不代表建議進場。`);
   }
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
-      <SectionCard title="Trade Plan Builder">
-        <div className="grid gap-3 md:grid-cols-2">
-          <select className="rounded border border-border bg-[#0b1118] p-2" value={form.symbol} onChange={(event) => setForm({ ...form, symbol: event.target.value })}>
-            {mockStocks.map((item) => <option key={item.symbol} value={item.symbol}>{item.symbol} {item.name}</option>)}
-          </select>
-          <select className="rounded border border-border bg-[#0b1118] p-2" value={form.strategy} onChange={(event) => setForm({ ...form, strategy: event.target.value as StrategyName })}>
-            {strategies.map((item) => <option key={item}>{item}</option>)}
-          </select>
-          <select className="rounded border border-border bg-[#0b1118] p-2 md:col-span-2" value={form.relatedEventId} onChange={(event) => setForm({ ...form, relatedEventId: event.target.value })}>
-            {mockEvents.map((event) => <option key={event.id} value={event.id}>{event.symbol} {event.eventDate} {event.eventTitle}</option>)}
-          </select>
-          {(["capital", "riskPerTradePct", "maxPositionPct", "entryPrice", "stopLoss", "takeProfit1", "takeProfit2"] as const).map((key) => (
-            <label key={key} className="text-xs text-muted">
-              {numberLabels[key]}
-              <input className="mt-1 w-full rounded border border-border bg-[#0b1118] p-2 text-text" type="number" value={form[key]} onChange={(event) => setForm({ ...form, [key]: Number(event.target.value) })} />
-            </label>
-          ))}
-          <textarea className="rounded border border-border bg-[#0b1118] p-2 md:col-span-2" value={form.eventInvalidationRule} onChange={(event) => setForm({ ...form, eventInvalidationRule: event.target.value })} />
-          <textarea className="rounded border border-border bg-[#0b1118] p-2 md:col-span-2" value={form.timeStopRule} onChange={(event) => setForm({ ...form, timeStopRule: event.target.value })} />
+    <div className="space-y-4">
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <p className="text-xs font-semibold tracking-[0.18em] text-emerald-700">交易計畫產生器</p>
+        <h1 className="mt-2 text-2xl font-semibold text-slate-950">交易計畫產生器</h1>
+        <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">先算清楚最多虧多少，再決定是否進一步研究。此頁只建立研究計畫，不做自動下單。</p>
+      </section>
+
+      {relatedEvent ? (
+        <div className="rounded-md border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-900">
+          已從事件催化雷達帶入：{relatedEvent.symbol} / {relatedEvent.name}，{relatedEvent.eventTitle}
+          {alphaRow ? <span className="ml-2">催化 {Math.round(alphaRow.catalyst.totalCatalystScore)}，Alpha {Math.round(alphaRow.alpha.combinedAlphaScore)}，下一步：{formatNextAction(alphaRow.alpha.nextAction)}</span> : null}
         </div>
-        {error ? <div className="mt-3"><ErrorState message={error} /></div> : null}
-        <div className="mt-3 flex gap-2">
-          <button className="rounded bg-accent px-3 py-2 font-semibold text-black" onClick={submit}>Generate & Save</button>
-          <button className="rounded border border-border px-3 py-2 text-muted" onClick={addJournal}>Add Journal</button>
+      ) : null}
+
+      <div className="grid gap-4 xl:grid-cols-[1fr_0.85fr]">
+        <div className="space-y-4">
+          <Step title="Step 1 選股票與事件" note="從事件雷達帶入時會自動填入股票、事件與日期。">
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="text-xs text-slate-500">股票代號
+                <select className={inputClass} value={form.symbol} onChange={(event) => setForm({ ...form, symbol: event.target.value })}>
+                  {mockStocks.map((item) => <option key={item.symbol} value={item.symbol}>{item.symbol} / {item.name}</option>)}
+                </select>
+              </label>
+              <label className="text-xs text-slate-500">策略
+                <select className={inputClass} value={form.strategy} onChange={(event) => setForm({ ...form, strategy: event.target.value as StrategyName })}>
+                  {strategies.map((item) => <option key={item} value={item}>{formatStrategy(item)}</option>)}
+                </select>
+              </label>
+              <label className="text-xs text-slate-500 md:col-span-2">關聯事件
+                <select className={inputClass} value={form.relatedEventId} onChange={(event) => setForm({ ...form, relatedEventId: event.target.value })}>
+                  {[...(selectedEvent ? [selectedEvent] : []), ...mockEvents.filter((event) => event.id !== selectedEvent?.id)].map((event) => <option key={event.id} value={event.id}>{event.symbol} / {event.name} {event.eventDate} {event.eventTitle}</option>)}
+                </select>
+              </label>
+            </div>
+          </Step>
+
+          <SectionCard title="官方注意 / 處置檢查">
+            <div className="flex flex-wrap items-center gap-2">
+              <button className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800" onClick={() => void checkOfficialWarnings(form.symbol)}>重新檢查 {form.symbol}</button>
+              <span className="text-sm text-amber-700">{officialWarningMessage}</span>
+            </div>
+            {officialWarnings.length ? <div className="mt-3 grid gap-2">{officialWarnings.map((row) => <div key={`${row.provider}-${row.warningType}-${row.symbol}-${row.effectiveDate ?? row.fetchedAt}`} className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><div className="flex flex-wrap items-center gap-2"><RiskBadge level={row.severity} /><span className="font-semibold">{row.warningType === "disposition" ? "處置股" : row.warningType === "attention" ? "注意股" : "市場警示"}</span><span>{row.provider}</span></div><p className="mt-2 text-xs leading-5">{row.reason}</p></div>)}</div> : null}
+            {officialWarnings.length ? <div className="mt-3 rounded-md border border-amber-200 bg-white p-3 text-xs leading-5 text-amber-900"><div className="font-semibold">官方警示部位上限</div><p>目前輸入單檔上限：{form.maxPositionPct}%。建議用於計算的上限：{riskAdjustedMaxPositionPct}%。{officialRisk === "disposition" ? "處置股建議最多 8%。" : officialRisk === "attention" ? "注意股建議最多 12%。" : ""}</p>{hasPositionCapAdjustment ? <button className="mt-2 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white" onClick={applyOfficialWarningCap}>套用建議上限 {riskAdjustedMaxPositionPct}%</button> : null}</div> : null}
+          </SectionCard>
+
+          <Step title="Step 2 設定資金與風險" note="先決定這筆研究最多能承受多少虧損。若命中官方注意 / 處置，產生計畫時會用較低部位上限計算。">
+            <NumberGrid form={form} setForm={setForm} keys={["capital", "riskPerTradePct", "maxPositionPct"]} labels={{ capital: "可用資金", riskPerTradePct: "單筆最大風險 %", maxPositionPct: "單檔最高部位 %" }} />
+          </Step>
+
+          <Step title="Step 3 設定進場 / 停損 / 停利" note="研究進場價必須高於停損價，才有辦法計算風險。">
+            <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm text-cyan-900">
+              <button className="rounded-md bg-cyan-700 px-3 py-1.5 text-xs font-semibold text-white" onClick={() => void handleLatestPrice()}>帶入最新價作為研究進場價</button>
+              <span>請自行確認價格與流動性，最新價不代表建議進場。</span>
+            </div>
+            {quoteMessage ? <p className="mb-3 text-xs leading-5 text-amber-700">{quoteMessage}</p> : null}
+            <NumberGrid form={form} setForm={setForm} keys={["entryPrice", "stopLoss", "takeProfit1", "takeProfit2"]} labels={{ entryPrice: "研究進場價", stopLoss: "停損價", takeProfit1: "第一停利價", takeProfit2: "第二停利價" }} />
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <label className="text-xs text-slate-500">事件失效條件<textarea className={inputClass} value={form.eventInvalidationRule} onChange={(event) => setForm({ ...form, eventInvalidationRule: event.target.value })} /></label>
+              <label className="text-xs text-slate-500">時間停損規則<textarea className={inputClass} value={form.timeStopRule} onChange={(event) => setForm({ ...form, timeStopRule: event.target.value })} /></label>
+            </div>
+          </Step>
+
+          <Step title="Step 4 產生計畫與儲存" note="產生後會儲存到 localStorage，並可加入交易日誌或匯出 Markdown。">
+            {error ? <ErrorState message={error} /> : null}
+            <div className="flex flex-wrap gap-2">
+              <button className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white" onClick={submit}>產生並儲存交易計畫</button>
+              <button className="rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700" onClick={addJournal}>加入交易日誌</button>
+              <Link className="rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700" href="/event-radar">回事件雷達</Link>
+              <Link className="rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700" href="/reports">匯出報告</Link>
+            </div>
+          </Step>
         </div>
-      </SectionCard>
-      <SectionCard title="Markdown Export">
-        <textarea className="min-h-96 w-full rounded border border-border bg-[#0b1118] p-3 font-mono text-xs" value={markdown} readOnly />
-      </SectionCard>
-      <SectionCard title="Adaptive Position Sizing">
-        {adaptive ? (
-          <div className="space-y-3">
+
+        <div className="space-y-4">
+          <SectionCard title="即時計算">
             <MiniMetricGrid items={[
-              { label: "Adaptive Shares", value: adaptive.suggestedShares },
-              { label: "Adaptive Position", value: `${adaptive.suggestedPositionPct}%` },
-              { label: "Risk Adjusted %", value: `${adaptive.riskAdjustedPositionPct}%` },
-              { label: "Confidence Size", value: `${adaptive.confidenceAdjustedSize}%` }
+              { label: "研究股數", value: form.entryPrice > form.stopLoss ? formatSharesLots(Math.floor((form.capital * (form.riskPerTradePct / 100)) / (form.entryPrice - form.stopLoss))) : "無法計算" },
+              { label: "事件日期", value: relatedEvent?.eventDate ?? "未設定" },
+              { label: "官方警示", value: officialWarnings.length ? `${officialWarnings.length} 筆` : "未命中" },
+              { label: "計算上限", value: `${riskAdjustedMaxPositionPct}%` },
+              { label: "已反應風險", value: alphaRow ? formatNextAction(alphaRow.alpha.nextAction) : "無資料" },
+              { label: "關聯狀態", value: lastPlanEventId ? "已建立計畫" : "尚未儲存" }
             ]} />
-            <WarningList warnings={adaptive.warnings} />
-          </div>
-        ) : (
-          <p className="text-sm text-muted">Generate a plan to calculate adaptive sizing.</p>
-        )}
-      </SectionCard>
-      <SectionCard title="Saved Plans">
+          </SectionCard>
+
+          <SectionCard title="自適應部位試算">
+            {adaptive ? (
+              <div className="space-y-3">
+                <MiniMetricGrid items={[
+                  { label: "建議股數", value: formatSharesLots(adaptive.suggestedShares) },
+                  { label: "建議部位", value: `${adaptive.suggestedPositionPct}%` },
+                  { label: "風險調整後", value: `${adaptive.riskAdjustedPositionPct}%` },
+                  { label: "可信度調整", value: `${adaptive.confidenceAdjustedSize}%` }
+                ]} />
+                <WarningList warnings={adaptive.warnings} />
+              </div>
+            ) : <p className="text-sm text-slate-500">產生交易計畫後，這裡會顯示自適應部位大小。注意股 / 處置股會先下修部位上限。</p>}
+          </SectionCard>
+
+          <SectionCard title="Markdown 匯出">
+            <textarea className="min-h-72 w-full rounded-md border border-slate-200 bg-white p-3 font-mono text-xs text-slate-800" value={markdown} readOnly />
+          </SectionCard>
+        </div>
+      </div>
+
+      <SectionCard title="已儲存交易計畫">
         <div className="space-y-3">{plans.map((plan) => <TradePlanCard key={plan.id} plan={plan} />)}</div>
       </SectionCard>
+    </div>
+  );
+}
+
+function getOfficialRiskStatus(warnings: MarketWarningItem[]): "none" | "attention" | "disposition" {
+  if (warnings.some((row) => row.warningType === "disposition")) return "disposition";
+  if (warnings.some((row) => row.warningType === "attention")) return "attention";
+  return "none";
+}
+
+function getRiskAdjustedMaxPositionPct(currentMaxPositionPct: number, warnings: MarketWarningItem[]): number {
+  const risk = getOfficialRiskStatus(warnings);
+  if (risk === "disposition") return Math.min(currentMaxPositionPct, 8);
+  if (risk === "attention") return Math.min(currentMaxPositionPct, 12);
+  return currentMaxPositionPct;
+}
+
+function Step({ title, note, children }: { title: string; note: string; children: React.ReactNode }) {
+  return <SectionCard title={title}><p className="mb-3 text-xs leading-5 text-slate-500">{note}</p>{children}</SectionCard>;
+}
+
+function NumberGrid({ form, setForm, keys, labels }: { form: FormState; setForm: Dispatch<SetStateAction<FormState>>; keys: NumericFormKey[]; labels: Partial<Record<NumericFormKey, string>> }) {
+  return (
+    <div className="grid gap-3 md:grid-cols-3">
+      {keys.map((key) => (
+        <label key={key} className="text-xs text-slate-500">{labels[key]}
+          <input className={inputClass} type="number" value={form[key]} onChange={(event) => setForm({ ...form, [key]: Number(event.target.value) })} />
+        </label>
+      ))}
     </div>
   );
 }

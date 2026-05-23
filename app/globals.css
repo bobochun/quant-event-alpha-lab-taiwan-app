@@ -4,17 +4,22 @@
 
 :root {
   color-scheme: dark;
-  background: #070b10;
+  background: #020617;
 }
 
 html {
   scroll-behavior: smooth;
+  background: #020617;
 }
 
 body {
   margin: 0;
-  background: #070b10;
-  color: #e5edf8;
+  background:
+    radial-gradient(circle at top left, rgba(34, 211, 238, 0.16), transparent 34rem),
+    radial-gradient(circle at top right, rgba(16, 185, 129, 0.12), transparent 28rem),
+    linear-gradient(135deg, #020617 0%, #07111f 46%, #0f172a 100%);
+  color: #e5eefb;
+  min-height: 100vh;
 }
 
 * {
@@ -33,11 +38,11 @@ a,
 select,
 input,
 textarea {
-  outline-color: #38bdf8;
+  outline-color: #22d3ee;
 }
 
 button {
-  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease, transform 120ms ease;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease, transform 120ms ease, box-shadow 140ms ease;
 }
 
 button:hover {
@@ -46,11 +51,16 @@ button:hover {
 
 .table-scroll {
   overflow-x: auto;
-  border-radius: 8px;
+  border-radius: 12px;
 }
 
 .table-scroll table {
   min-width: 1040px;
+}
+
+::selection {
+  background: rgba(34, 211, 238, 0.28);
+  color: #ecfeff;
 }
 
 ::-webkit-scrollbar {
@@ -59,14 +69,221 @@ button:hover {
 }
 
 ::-webkit-scrollbar-track {
-  background: #0b1220;
+  background: #020617;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #263447;
+  background: #334155;
+  border: 2px solid #020617;
   border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #36506a;
+  background: #22d3ee;
+}
+
+/* Dark Quant Terminal Pro skin
+   Most pages were initially built with light Tailwind utility classes.
+   The terminal-skin wrapper remaps the common slate/white utilities into a
+   consistent professional dark research dashboard without rewriting every page. */
+.terminal-skin {
+  color: #dbeafe;
+}
+
+.terminal-skin::before {
+  content: "";
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.035) 1px, transparent 1px);
+  background-size: 34px 34px;
+  mask-image: linear-gradient(to bottom, rgba(0,0,0,0.65), transparent 72%);
+}
+
+.terminal-skin > * {
+  position: relative;
+  z-index: 1;
+}
+
+.terminal-skin .bg-white,
+.terminal-skin .bg-white\/90,
+.terminal-skin .bg-white\/95 {
+  background-color: rgba(15, 23, 42, 0.82) !important;
+}
+
+.terminal-skin .bg-slate-50,
+.terminal-skin .bg-slate-100 {
+  background-color: rgba(15, 23, 42, 0.58) !important;
+}
+
+.terminal-skin .bg-slate-200 {
+  background-color: rgba(30, 41, 59, 0.92) !important;
+}
+
+.terminal-skin .border-slate-100,
+.terminal-skin .border-slate-200,
+.terminal-skin .border-slate-300 {
+  border-color: rgba(51, 65, 85, 0.9) !important;
+}
+
+.terminal-skin .ring-slate-100 {
+  --tw-ring-color: rgba(34, 211, 238, 0.09) !important;
+}
+
+.terminal-skin .shadow-sm,
+.terminal-skin .shadow {
+  box-shadow: 0 18px 45px rgba(2, 6, 23, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.035) !important;
+}
+
+.terminal-skin .text-slate-950,
+.terminal-skin .text-slate-900,
+.terminal-skin .text-slate-800 {
+  color: #f8fafc !important;
+}
+
+.terminal-skin .text-slate-700,
+.terminal-skin .text-slate-600 {
+  color: #cbd5e1 !important;
+}
+
+.terminal-skin .text-slate-500,
+.terminal-skin .text-slate-400 {
+  color: #94a3b8 !important;
+}
+
+.terminal-skin input,
+.terminal-skin select,
+.terminal-skin textarea {
+  background-color: rgba(2, 6, 23, 0.72) !important;
+  border-color: rgba(51, 65, 85, 0.95) !important;
+  color: #e2e8f0 !important;
+}
+
+.terminal-skin input::placeholder,
+.terminal-skin textarea::placeholder {
+  color: #64748b !important;
+}
+
+.terminal-skin input:focus,
+.terminal-skin select:focus,
+.terminal-skin textarea:focus {
+  border-color: #22d3ee !important;
+  box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.12) !important;
+}
+
+.terminal-skin table {
+  background: rgba(2, 6, 23, 0.24);
+}
+
+.terminal-skin thead,
+.terminal-skin .bg-slate-100.text-xs,
+.terminal-skin .sticky.top-0.bg-slate-100 {
+  background-color: rgba(2, 6, 23, 0.96) !important;
+  color: #7dd3fc !important;
+}
+
+.terminal-skin tbody tr {
+  border-color: rgba(30, 41, 59, 0.92) !important;
+}
+
+.terminal-skin tbody tr:hover,
+.terminal-skin .hover\:bg-cyan-50\/50:hover,
+.terminal-skin .hover\:bg-cyan-50\/60:hover,
+.terminal-skin .hover\:bg-slate-50:hover,
+.terminal-skin .hover\:bg-slate-100:hover {
+  background-color: rgba(8, 145, 178, 0.12) !important;
+}
+
+.terminal-skin .bg-emerald-50,
+.terminal-skin .bg-emerald-100 {
+  background-color: rgba(6, 78, 59, 0.58) !important;
+}
+
+.terminal-skin .border-emerald-100,
+.terminal-skin .border-emerald-200,
+.terminal-skin .border-emerald-300,
+.terminal-skin .border-emerald-400 {
+  border-color: rgba(16, 185, 129, 0.46) !important;
+}
+
+.terminal-skin .text-emerald-700,
+.terminal-skin .text-emerald-800,
+.terminal-skin .text-emerald-900,
+.terminal-skin .text-emerald-950 {
+  color: #6ee7b7 !important;
+}
+
+.terminal-skin .bg-cyan-50,
+.terminal-skin .bg-cyan-100 {
+  background-color: rgba(8, 47, 73, 0.62) !important;
+}
+
+.terminal-skin .border-cyan-100,
+.terminal-skin .border-cyan-200,
+.terminal-skin .border-cyan-300 {
+  border-color: rgba(34, 211, 238, 0.42) !important;
+}
+
+.terminal-skin .text-cyan-700,
+.terminal-skin .text-cyan-800,
+.terminal-skin .text-cyan-900 {
+  color: #67e8f9 !important;
+}
+
+.terminal-skin .bg-amber-50,
+.terminal-skin .bg-amber-100 {
+  background-color: rgba(120, 53, 15, 0.55) !important;
+}
+
+.terminal-skin .border-amber-100,
+.terminal-skin .border-amber-200,
+.terminal-skin .border-amber-300 {
+  border-color: rgba(245, 158, 11, 0.44) !important;
+}
+
+.terminal-skin .text-amber-700,
+.terminal-skin .text-amber-800,
+.terminal-skin .text-amber-900 {
+  color: #fcd34d !important;
+}
+
+.terminal-skin .bg-rose-50,
+.terminal-skin .bg-rose-100,
+.terminal-skin .bg-orange-50 {
+  background-color: rgba(127, 29, 29, 0.52) !important;
+}
+
+.terminal-skin .border-rose-200,
+.terminal-skin .border-rose-300,
+.terminal-skin .border-rose-400,
+.terminal-skin .border-orange-300 {
+  border-color: rgba(251, 113, 133, 0.42) !important;
+}
+
+.terminal-skin .text-rose-800,
+.terminal-skin .text-rose-900,
+.terminal-skin .text-orange-800 {
+  color: #fda4af !important;
+}
+
+.terminal-skin .rounded-lg,
+.terminal-skin .rounded-md {
+  border-radius: 14px;
+}
+
+.terminal-skin a {
+  text-underline-offset: 3px;
+}
+
+.terminal-skin .terminal-card {
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.88), rgba(2, 6, 23, 0.72)) !important;
+  border-color: rgba(51, 65, 85, 0.88) !important;
+  box-shadow: 0 24px 70px rgba(2, 6, 23, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+}
+
+.terminal-skin .terminal-glow {
+  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.12), 0 24px 70px rgba(8, 145, 178, 0.14) !important;
 }

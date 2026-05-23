@@ -4,7 +4,23 @@ out
 .vercel
 *.log
 .env.local
+.env
 *.tsbuildinfo
 *.zip
+
+test-results
+playwright-report
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+backend/data/
+backend/backend/data/
+*.sqlite
+*.sqlite3
+*.db
 
 .vercel

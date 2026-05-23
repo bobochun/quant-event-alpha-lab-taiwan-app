@@ -1,4 +1,5 @@
-export type DataSource = "Real" | "Cached" | "Manual" | "Imported" | "Estimated" | "Demo" | "Missing";
+export type DataSource = "Real" | "Official" | "Cached" | "Manual" | "Imported" | "Estimated" | "Demo" | "Missing" | "Error";
+export type AppDataMode = "DemoOnly" | "Hybrid" | "RealImportedOnly";
 
 export type EventType =
   | "investorConference"
@@ -32,6 +33,12 @@ export type StrategyName = "Pre-Earnings Drift" | "ETF Rebalance Flow" | "AI The
 export interface DataTagged {
   dataSource: DataSource;
   sourceNote: string;
+  sourceName?: string;
+  sourceUrl?: string;
+  lastUpdated?: string;
+  confidence?: number;
+  importedAt?: string;
+  fetchedAt?: string;
 }
 
 export interface Event extends DataTagged {
@@ -303,15 +310,124 @@ export interface AlphaEngineResult {
   daysToEvent: number;
   pricedInRisk: RiskLevel;
   overheatRisk: RiskLevel;
+  scoreRecomputed?: boolean;
+  dataQualityWarnings?: string[];
+  sourceDiagnostics?: {
+    eventSource: DataSource;
+    priceSource: DataSource;
+    flowSource: DataSource;
+    warningSource: DataSource;
+    estimatedFields: string[];
+  };
 }
 
 export interface AppSettings extends DataTagged {
-  dataMode: DataSource;
+  dataMode: AppDataMode;
   appVersion: string;
   enableDemoData: boolean;
   baseCapital: number;
   defaultRiskPerTradePct: number;
   timezone: "Asia/Taipei";
+  dashboardWidgets?: string[];
+  onboardingCompleted?: boolean;
+}
+
+export interface SourceHealth {
+  sourceId: string;
+  sourceName: string;
+  status: "ok" | "degraded" | "error" | "disabled";
+  lastSuccessAt?: string;
+  lastFailureAt?: string;
+  latencyMs?: number;
+  errorMessage?: string;
+  recordsFetched: number;
+  nextRecommendedRefreshAt?: string;
+}
+
+export interface SecurityMasterRecord extends DataTagged {
+  symbol: string;
+  name: string;
+  market: "TWSE" | "TPEx" | "Emerging" | "Unknown";
+  assetType: "stock" | "ETF" | "index" | "other";
+  industry?: string;
+  isin?: string;
+  listedDate?: string;
+}
+
+export interface PriceSnapshot extends DataTagged {
+  symbol: string;
+  name: string;
+  date: string;
+  open?: number;
+  high?: number;
+  low?: number;
+  close: number;
+  volume: number;
+  value?: number;
+  ma20?: number;
+  ma60?: number;
+  rsi?: number;
+  atr?: number;
+  twentyDayReturn?: number;
+  sixtyDayReturn?: number;
+  relativeStrength?: number;
+}
+
+export interface InstitutionalFlowRecord extends DataTagged {
+  symbol: string;
+  name: string;
+  date: string;
+  foreignNetBuy: number;
+  investmentTrustNetBuy: number;
+  dealerNetBuy: number;
+  totalInstitutionalNetBuy: number;
+  buyDays?: number;
+  flowState?: "accumulation" | "distribution" | "neutral" | "positive" | "negative";
+}
+
+export interface MarketWarningRecord extends DataTagged {
+  symbol: string;
+  name: string;
+  warningType: "attention" | "disposition";
+  startDate: string;
+  endDate?: string;
+  reason?: string;
+}
+
+export interface DividendRecord extends DataTagged {
+  symbol: string;
+  name: string;
+  exDividendDate: string;
+  cashDividend: number;
+  stockDividend?: number;
+  yieldPct?: number;
+  lastBuyDate?: string;
+  paymentDate?: string;
+}
+
+export interface MonthlyRevenueRecord extends DataTagged {
+  symbol: string;
+  name: string;
+  revenueMonth: string;
+  announceDate: string;
+  revenue: number;
+  yoyGrowth: number;
+  momGrowth: number;
+  cumulativeRevenue?: number;
+  cumulativeYoyGrowth?: number;
+}
+
+export interface EarningsRecord extends DataTagged {
+  symbol: string;
+  name: string;
+  quarter: string;
+  announceDate: string;
+  eps: number;
+  grossMargin?: number;
+  operatingMargin?: number;
+  netMargin?: number;
+  yoyGrowth?: number;
+  qoqGrowth?: number;
 }
 
 export interface BackupPayload {

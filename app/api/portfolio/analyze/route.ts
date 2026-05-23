@@ -4,5 +4,5 @@ import { ok } from "../../_response";
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => mockPortfolio);
-  return ok(analyzePortfolioExposure(body ?? mockPortfolio), "Estimated", "Generated from portfolio payload.");
+  return ok(analyzePortfolioExposure(body ?? mockPortfolio), "Estimated", "由投組資料估算產生。");
 }

@@ -1,31 +1,48 @@
-# Product Spec
+# 產品規格
 
-Quant Event Alpha Lab Taiwan helps identify stocks with possible event catalysts in the next 7 days where the market may not have fully reacted.
+台股量化事件研究室是一個個人用台股事件驅動研究終端，目標是每天 3 到 5 分鐘完成：
 
-The product does not provide investment advice, guaranteed returns, copy trading, broker API integration, or automated order placement.
+1. 看今天市場狀態
+2. 看未來 7 天事件催化
+3. 找出尚未完全反應的股票
+4. 排除已過熱 / 已反應標的
+5. 選 1 到 3 檔建立交易計畫
+6. 檢查投組曝險
+7. 寫交易日誌
+8. 匯出週報 / 備份資料
 
-MVP pages:
+本產品不提供投資建議或代操服務，不接券商 API，不做自動下單。
 
-1. `/` Command Center
-2. `/event-radar`
-3. `/theme-radar`
-4. `/trade-plan`
-5. `/portfolio`
-6. `/risk-center`
-7. `/journal`
-8. `/reports`
-9. `/data-center`
-10. `/settings`
-11. `/backtest-lab`
-12. `/event-study`
-13. `/strategy-studio`
-14. `/signal-radar`
-15. `/event-calendar`
+## 正式頁面
 
-Latest MVP additions:
+1. `/` 每日主控台
+2. `/event-radar` 事件催化雷達
+3. `/theme-radar` 題材熱度雷達
+4. `/trade-plan` 交易計畫
+5. `/portfolio` 投組風控
+6. `/risk-center` 風控中心
+7. `/journal` 交易日誌
+8. `/reports` 報告匯出
+9. `/data-center` 資料狀態中心
+10. `/settings` 設定與備份
 
-- Backtest Lab strategy scorecard using journal outcomes and saved plan risk.
-- Event Study historical event reaction table using demo historical event data.
-- Strategy Studio playbook view for matched strategy modules.
-- Signal Radar factor breakdown for catalyst, trend, flow, theme, and risk-adjusted momentum.
-- Event Calendar queue grouped by date with risk clusters and trade-plan links.
+## Coming Soon
+
+- `/backtest-lab` 回測實驗室
+- `/event-study` 事件研究
+- `/strategy-studio` 策略工作室
+- `/signal-radar` 訊號雷達
+- `/event-calendar` 事件行事曆
+
+這些頁面目前保留架構與用途說明，並連回現有可用流程。
+
+## 第二階段 UX 重點
+
+- 全站繁體中文化
+- 台股股票名稱與事件標題中文化
+- 淺色系金融研究終端
+- Today Action List 去重、分組、優先級排序
+- 表格分數拆解與下一步說明
+- 交易計畫加入股 / 張顯示
+- 報告與備份流程中文化
+- 示範資料明確標示非即時市場資料

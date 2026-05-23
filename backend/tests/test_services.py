@@ -1,0 +1,143 @@
+import asyncio
+
+from app.db.init_db import init_db
+from app.db.session import SessionLocal
+from app.models.market import FactorScoreModel, PriceBarModel
+from app.services.institutional_flow_service import normalize_finmind_rows
+from app.services.kline_service import KLineService, clear_kline_cache
+from app.services.market_warning_service import parse_warning_row
+from app.services.quote_service import QuoteService
+from app.services.research_service import ResearchService
+
+
+def test_quote_cache_guard():
+    service = QuoteService()
+    first = asyncio.run(service.latest("2382"))
+    second = asyncio.run(service.latest("2382"))
+    assert first.symbol == second.symbol
+    assert first.provider == second.provider
+
+
+def test_kline_persistence_is_idempotent():
+    init_db()
+    clear_kline_cache()
+    db = SessionLocal()
+    try:
+      symbol = "TSTKLINE"
+      db.query(PriceBarModel).filter(PriceBarModel.symbol == symbol).delete(synchronize_session=False)
+      db.commit()
+      service = KLineService()
+      first = asyncio.run(service.kline(symbol, "1d", "1m", "demo", db=db))
+      count_first = db.query(PriceBarModel).filter(PriceBarModel.symbol == symbol, PriceBarModel.interval == "1d", PriceBarModel.provider == first.provider).count()
+      clear_kline_cache()
+      second = asyncio.run(service.kline(symbol, "1d", "1m", "demo", db=db))
+      count_second = db.query(PriceBarModel).filter(PriceBarModel.symbol == symbol, PriceBarModel.interval == "1d", PriceBarModel.provider == second.provider).count()
+      assert count_first == len(first.bars)
+      assert count_second == len(second.bars)
+      assert count_second == count_first
+    finally:
+      db.query(PriceBarModel).filter(PriceBarModel.symbol == "TSTKLINE").delete(synchronize_session=False)
+      db.commit()
+      db.close()
+
+
+def test_factor_score_persistence_is_idempotent():
+    init_db()
+    db = SessionLocal()
+    try:
+      symbols = ["TSTF1", "TSTF2"]
+      db.query(FactorScoreModel).filter(FactorScoreModel.symbol.in_(symbols)).delete(synchronize_session=False)
+      db.commit()
+      service = ResearchService()
+      first = asyncio.run(service.cross_section(symbols, persist=True, db=db))
+      count_first = db.query(FactorScoreModel).filter(FactorScoreModel.symbol.in_(symbols), FactorScoreModel.model_version == "quant-v1").count()
+      second = asyncio.run(service.cross_section(symbols, persist=True, db=db))
+      count_second = db.query(FactorScoreModel).filter(FactorScoreModel.symbol.in_(symbols), FactorScoreModel.model_version == "quant-v1").count()
+      assert first.universe_size == 2
+      assert second.universe_size == 2
+      assert count_first == 2
+      assert count_second == 2
+    finally:
+      db.query(FactorScoreModel).filter(FactorScoreModel.symbol.in_(["TSTF1", "TSTF2"])).delete(synchronize_session=False)
+      db.commit()
+      db.close()
+
+
+def test_finmind_institutional_flow_normalization():
+    rows = [
+        {"date": "2026-05-20", "name": "外資", "buy": 10_000, "sell": 2_000},
+        {"date": "2026-05-20", "name": "投信", "buy": 3_000, "sell": 1_000},
+        {"date": "2026-05-20", "name": "自營商", "buy": 1_000, "sell": 2_000},
+        {"date": "2026-05-21", "name": "外資", "buy": 12_000, "sell": 1_000},
+        {"date": "2026-05-21", "name": "投信", "buy": 5_000, "sell": 1_000},
+        {"date": "2026-05-21", "name": "自營商", "buy": 900, "sell": 2_000},
+    ]
+    result = normalize_finmind_rows("2330", rows)
+    assert result.symbol == "2330"
+    assert result.trade_date == "2026-05-21"
+    assert result.foreign_net_buy_shares == 11_000
+    assert result.investment_trust_net_buy_shares == 4_000
+    assert result.dealer_net_buy_shares == -1_100
+    assert result.total_institutional_net_buy_shares == 13_900
+    assert result.foreign_consecutive_days == 2
+    assert result.investment_trust_consecutive_days == 2
+    assert result.dealer_consecutive_days == -2
+    assert result.flow_bias == "accumulation"
+    assert result.flow_confirmation_score > 70
+    assert result.data_source == "Official"
+
+
+def test_finmind_institutional_flow_alternate_field_names():
+    rows = [
+        {"trade_date": "2026-05-20", "institutional_investor": "Foreign_Investor", "net_buy_sell": -1000},
+        {"trade_date": "2026-05-20", "institutional_investor": "Investment Trust", "NetBuySell": 2000},
+        {"trade_date": "2026-05-21", "institutional_investor": "Dealer", "buy_shares": 500, "sell_shares": 300},
+    ]
+    result = normalize_finmind_rows("2382", rows)
+    assert result.trade_date == "2026-05-21"
+    assert result.dealer_net_buy_shares == 200
+    assert result.total_institutional_net_buy_shares == 200
+    assert result.provider == "finmind-flow"
+
+
+def test_official_market_warning_parser_chinese_fields():
+    item = parse_warning_row(
+        {
+            "有價證券代號": "2330",
+            "有價證券名稱": "台積電",
+            "注意原因": "最近六個營業日累積週轉率過高，列為注意股票",
+            "公布日期": "115/05/21",
+        },
+        provider="twse-attention",
+        market="TWSE",
+        warning_type="attention",
+        url="https://example.test/twse-attention",
+    )
+    assert item is not None
+    assert item.symbol == "2330"
+    assert item.name == "台積電"
+    assert item.warning_type == "attention"
+    assert item.severity == "medium"
+    assert item.effective_date == "2026-05-21"
+    assert item.data_source == "Official"
+
+
+def test_official_market_warning_parser_disposition_severity():
+    item = parse_warning_row(
+        {
+            "Code": "3017",
+            "Name": "奇鋐",
+            "DispositionReason": "再次達處置標準，延長分盤撮合",
+            "StartDate": "2026-05-21",
+            "EndDate": "2026-05-30",
+        },
+        provider="twse-disposition",
+        market="TWSE",
+        warning_type="disposition",
+        url="https://example.test/twse-disposition",
+    )
+    assert item is not None
+    assert item.symbol == "3017"
+    assert item.warning_type == "disposition"
+    assert item.severity == "critical"
+    assert item.end_date == "2026-05-30"

@@ -1,6 +1,9 @@
-import type { DataSource, EventType, NextAction, RiskLevel } from "./types";
+import type { AppDataMode, DataSource, EventType, MarketRegime, NextAction, RiskLevel, StrategyName } from "./types";
 
-export const DEMO_SOURCE_NOTE = "Demo data for MVP testing. Not real-time market data.";
+export const DEMO_SOURCE_NOTE = "示範資料，不是真實即時市場資料，僅供 MVP 測試與流程操作。";
+export const IMPORTED_SOURCE_NOTE = "使用者匯入 CSV 資料，請自行確認來源與正確性。";
+export const OFFICIAL_SOURCE_NOTE = "官方公開資料來源，仍需自行確認資料時點、欄位定義與交易適用性。";
+export const ESTIMATED_SOURCE_NOTE = "部分欄位由有限資料估算，請自行確認後再使用。";
 export const APP_VERSION = "0.1.0-super-mvp";
 
 export function clamp(value: number, min = 0, max = 100): number {
@@ -41,38 +44,34 @@ export function riskFromScore(score: number): RiskLevel {
   return "low";
 }
 
-export function sourceTag(dataSource: DataSource): string {
-  return dataSource === "Demo" ? "DEMO" : dataSource.toUpperCase();
-}
-
 export const EVENT_TYPE_LABELS: Record<EventType, string> = {
-  investorConference: "Investor Conf.",
-  exDividend: "Ex-Dividend",
-  monthlyRevenue: "Monthly Revenue",
-  earnings: "Earnings",
-  foreignBrokerReport: "Broker Metadata",
-  majorHolderChange: "Major Holder",
-  etfRebalance: "ETF Rebalance",
-  attentionStock: "Attention",
-  dispositionStock: "Disposition",
-  shareholderMeetingGift: "Shareholder Gift",
-  productLaunch: "Product Launch",
-  aiServerNews: "AI Server",
-  semiconductorNews: "Semiconductor",
-  industryConference: "Industry Conf.",
-  policy: "Policy",
-  orderContract: "Order Contract",
-  buyback: "Buyback",
-  capitalIncrease: "Capital Increase",
-  convertibleBond: "Convertible Bond",
-  mergerAcquisition: "M&A",
-  supplyChainNews: "Supply Chain",
-  other: "Other"
+  investorConference: "法說會",
+  exDividend: "除權息",
+  monthlyRevenue: "月營收",
+  earnings: "財報",
+  foreignBrokerReport: "外資報告 metadata",
+  majorHolderChange: "大戶持股變化",
+  etfRebalance: "ETF 成分調整",
+  attentionStock: "注意股",
+  dispositionStock: "處置股",
+  shareholderMeetingGift: "股東會紀念品",
+  productLaunch: "產品發表",
+  aiServerNews: "AI 伺服器消息",
+  semiconductorNews: "半導體消息",
+  industryConference: "產業會議",
+  policy: "政策事件",
+  orderContract: "訂單 / 合約",
+  buyback: "庫藏股",
+  capitalIncrease: "增資",
+  convertibleBond: "可轉債",
+  mergerAcquisition: "併購",
+  supplyChainNews: "供應鏈消息",
+  other: "其他"
 };
 
 export const NEXT_ACTION_LABELS: Record<NextAction, string> = {
   Observe: "觀察",
-  WaitForConfirmation: "等待確認",
+  WaitForConfirmation: "等事件確認",
   CreateTradePlan: "建立交易計畫",
   WaitForPullback: "等回測買點",
   AvoidChasing: "避免追高",
@@ -81,6 +80,132 @@ export const NEXT_ACTION_LABELS: Record<NextAction, string> = {
   InsufficientData: "資料不足"
 };
 
+export const DATA_SOURCE_LABELS: Record<DataSource, string> = {
+  Real: "真實",
+  Official: "官方",
+  Cached: "快取",
+  Manual: "手動",
+  Imported: "匯入",
+  Estimated: "估算",
+  Demo: "示範",
+  Missing: "缺資料",
+  Error: "錯誤"
+};
+
+export const APP_DATA_MODE_LABELS: Record<AppDataMode, string> = {
+  DemoOnly: "Demo only",
+  Hybrid: "Hybrid",
+  RealImportedOnly: "Real / Imported only"
+};
+
+export const RISK_LEVEL_LABELS: Record<RiskLevel, string> = {
+  low: "低",
+  medium: "中",
+  high: "高",
+  critical: "極高"
+};
+
+export const CONFIDENCE_LABELS = {
+  low: "低",
+  medium: "中",
+  high: "高"
+} as const;
+
+export const MARKET_REGIME_LABELS: Record<MarketRegime, string> = {
+  bullish: "偏多",
+  sideways: "震盪",
+  bearish: "偏空",
+  highVolatility: "高波動",
+  riskOff: "風險趨避",
+  unknown: "未知"
+};
+
+export const VOLATILITY_LABELS = {
+  low: "低波動",
+  normal: "正常",
+  elevated: "偏高",
+  extreme: "極高"
+} as const;
+
+export const STRATEGY_LABELS: Record<StrategyName, string> = {
+  "Pre-Earnings Drift": "財報前預期漂移",
+  "ETF Rebalance Flow": "ETF 成分調整資金流",
+  "AI Theme Rotation": "AI 題材輪動",
+  "Low Base Catalyst": "低基期事件催化",
+  "Event Pullback": "事件後回測",
+  "Manual Event Research": "手動事件研究"
+};
+
+export const RISK_CATEGORY_LABELS = {
+  "Event Risk": "事件風險",
+  "Position Risk": "部位風險",
+  "Portfolio Risk": "投組風險",
+  "Behavior Risk": "行為風險",
+  "Data Risk": "資料風險"
+} as const;
+
+export function sourceTag(dataSource: DataSource | AppDataMode): string {
+  return DATA_SOURCE_LABELS[dataSource as DataSource] ?? APP_DATA_MODE_LABELS[dataSource as AppDataMode] ?? dataSource;
+}
+
 export function formatNextAction(action: string): string {
   return NEXT_ACTION_LABELS[action as NextAction] ?? action;
+}
+
+export function formatDateTW(value: string | Date): string {
+  const date = typeof value === "string" ? new Date(`${value}T00:00:00`) : value;
+  if (Number.isNaN(date.getTime())) return String(value);
+  return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")}`;
+}
+
+export function formatCurrencyNTD(value: number): string {
+  return `NT$ ${Math.round(value).toLocaleString("zh-TW")}`;
+}
+
+export function formatSharesLots(shares: number): string {
+  const rounded = Math.max(0, Math.round(shares));
+  const lots = rounded / 1000;
+  return `${rounded.toLocaleString("zh-TW")} 股 / 約 ${lots.toFixed(lots >= 1 ? 1 : 2)} 張`;
+}
+
+export function formatPercent(value: number, digits = 1): string {
+  return `${round(value, digits)}%`;
+}
+
+export function formatSymbolName(symbol: string, name: string): string {
+  return `${symbol} / ${name}`;
+}
+
+export function formatRiskLevel(level: RiskLevel): string {
+  return RISK_LEVEL_LABELS[level] ?? level;
+}
+
+export function formatDataSource(source: DataSource | AppDataMode): string {
+  return DATA_SOURCE_LABELS[source as DataSource] ?? APP_DATA_MODE_LABELS[source as AppDataMode] ?? source;
+}
+
+export function formatStrategy(strategy: StrategyName | string): string {
+  return STRATEGY_LABELS[strategy as StrategyName] ?? strategy;
+}
+
+export function localizeTheme(theme: string): string {
+  const labels: Record<string, string> = {
+    "AI server": "AI 伺服器",
+    CoWoS: "CoWoS 先進封裝",
+    HBM: "HBM 記憶體",
+    Thermal: "散熱",
+    cooling: "散熱",
+    PCB: "PCB / 載板",
+    "Silicon Photonics": "矽光子",
+    "Semiconductor Equipment": "半導體設備",
+    Memory: "記憶體",
+    Robot: "機器人",
+    Defense: "軍工",
+    "Dividend ETF": "高股息 ETF",
+    EV: "電動車",
+    Biotech: "生技",
+    Shipping: "航運",
+    "Power supply": "電源供應"
+  };
+  return labels[theme] ?? theme;
 }

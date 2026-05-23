@@ -1,5 +1,3 @@
-"use client";
-
 import type { AppSettings, BackupPayload, Event, JournalEntry, Portfolio, TradePlan } from "./types";
 import { mockEvents, mockJournal, mockPortfolio, mockSettings, mockTradePlans } from "./mockData";
 
@@ -11,11 +9,11 @@ const keys = {
   settings: "qealt.settings"
 };
 
-function canUseStorage(): boolean {
+export function canUseStorage(): boolean {
   return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
 }
 
-function loadJson<T>(key: string, fallback: T): T {
+export function loadJson<T>(key: string, fallback: T): T {
   if (!canUseStorage()) return fallback;
   const raw = window.localStorage.getItem(key);
   if (!raw) return fallback;
@@ -26,7 +24,7 @@ function loadJson<T>(key: string, fallback: T): T {
   }
 }
 
-function saveJson<T>(key: string, value: T): void {
+export function saveJson<T>(key: string, value: T): void {
   if (!canUseStorage()) return;
   window.localStorage.setItem(key, JSON.stringify(value));
 }
@@ -59,7 +57,7 @@ export function importAllData(payload: BackupPayload): void {
   saveTradePlans(payload.tradePlans);
   savePortfolio(payload.portfolio);
   saveJournal(payload.journal);
-  saveSettings({ ...payload.settings, dataMode: "Imported" });
+  saveSettings({ ...payload.settings, dataMode: payload.settings.dataMode ?? "Hybrid" });
 }
 
 export function resetLocalData(): void {
@@ -70,7 +68,7 @@ export function resetLocalData(): void {
 export function clearDemoData(): void {
   saveEvents([]);
   saveTradePlans([]);
-  savePortfolio({ ...mockPortfolio, positions: [], cash: 0, dataSource: "Manual", sourceNote: "Manual local data." });
+  savePortfolio({ ...mockPortfolio, positions: [], cash: 0, dataSource: "Manual", sourceNote: "手動資料模式，已清除示範投組。" });
   saveJournal([]);
-  saveSettings({ ...mockSettings, dataMode: "Manual", enableDemoData: false, dataSource: "Manual", sourceNote: "Manual local data." });
+  saveSettings({ ...mockSettings, dataMode: "RealImportedOnly", enableDemoData: false, dataSource: "Manual", sourceNote: "手動資料模式，已清除示範資料。" });
 }
