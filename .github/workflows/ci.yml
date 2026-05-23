@@ -2,12 +2,50 @@ name: CI
 
 on:
   push:
-    branches: ["main", "quant-event-alpha-lab-super-mvp"]
+    branches: ["main", "quant-event-alpha-lab-super-mvp", "backend-realtime-price-kline"]
   pull_request:
 
 jobs:
-  build:
+  backend:
+    name: Backend pytest and compile
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      ENABLE_BACKEND_SCHEDULER: "false"
+      ENABLE_FINMIND: "false"
+      ENABLE_AI_QUANT: "false"
+      ENABLE_PUBLIC_WEB_CRAWLER: "false"
+      ENABLE_DEMO_FALLBACK: "true"
+      DATABASE_URL: "sqlite:///./data/test_market_data.sqlite3"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run pytest
+        run: pytest
+
+      - name: Compile backend app
+        run: python -m compileall app
+
+  frontend:
+    name: Frontend typecheck lint build
+    runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_BACKEND_URL: "http://localhost:8000"
+      NEXT_PUBLIC_ENABLE_AUTO_REFRESH: "false"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -18,11 +56,14 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Install
+      - name: Install frontend dependencies
         run: npm install
 
       - name: Typecheck
         run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
 
       - name: Build
         run: npm run build
