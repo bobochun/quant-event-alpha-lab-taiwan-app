@@ -3,12 +3,13 @@
 import { useEffect, useState } from "react";
 import { CsvImportPanel } from "../components/import/CsvImportPanel";
 import { ImportTemplatePanel } from "../components/import/ImportTemplatePanel";
-import { DataSourceBadge, MiniMetricGrid, RiskBadge, SectionCard } from "../components/ui";
+import { DataSourceBadge, MiniMetricGrid, RiskBadge, SectionCard, WarningList } from "../components/ui";
 import { DataTable, type DataTableColumn } from "../components/ui/DataTable";
 import { fetchBackendEventProviders, type BackendEventProviderStatus } from "../lib/backendEventsApi";
 import { fetchDeployReadiness, type DeployReadinessCheck } from "../lib/deployReadinessApi";
 import { loadImportedDataset, type ImportSummary } from "../lib/importers";
 import { fetchKLine, fetchLatestQuote, fetchMarketProviders, fetchMarketWarnings, type MarketProviderStatus, type MarketWarningItem } from "../lib/marketApi";
+import { fetchQuantDiagnostics, type QuantDatasetDiagnostic, type QuantDiagnosticsPayload } from "../lib/quantApi";
 import type { SourceHealth } from "../lib/types";
 import { formatDateTW } from "../lib/utils";
 
@@ -17,6 +18,7 @@ type MarketProviderRow = MarketProviderStatus & { id: string };
 type EventProviderRow = BackendEventProviderStatus & { id: string };
 type DeployCheckRow = DeployReadinessCheck & { id: string };
 type WarningRow = MarketWarningItem & { id: string };
+type QuantDiagnosticRow = QuantDatasetDiagnostic & { id: string };
 const initialHealth: SourceRow[] = [
   { id: "twse", sourceId: "twse", sourceName: "TWSE OpenAPI", status: "degraded", recordsFetched: 0, errorMessage: "尚未手動刷新。" },
   { id: "tpex", sourceId: "tpex", sourceName: "TPEx OpenAPI", status: "degraded", recordsFetched: 0, errorMessage: "尚未手動刷新。" },
@@ -32,10 +34,12 @@ export default function DataCenterPage() {
   const [eventProviders, setEventProviders] = useState<EventProviderRow[]>([]);
   const [deployChecks, setDeployChecks] = useState<DeployCheckRow[]>([]);
   const [officialWarnings, setOfficialWarnings] = useState<WarningRow[]>([]);
+  const [quantDiagnostics, setQuantDiagnostics] = useState<QuantDiagnosticsPayload | null>(null);
   const [message, setMessage] = useState("");
   const [marketMessage, setMarketMessage] = useState("");
   const [eventMessage, setEventMessage] = useState("");
   const [warningMessage, setWarningMessage] = useState("官方注意股 / 處置股 endpoint 未測試。未設定 endpoint 時會顯示 Missing，不會使用 Demo 冒充官方警示。");
+  const [quantMessage, setQuantMessage] = useState("尚未檢查後端量化分析就緒度。");
   const [deployMessage, setDeployMessage] = useState("尚未檢查部署就緒狀態。");
   const imported = loadImportedDataset();
   const summaries = imported.summaries;
@@ -58,6 +62,18 @@ export default function DataCenterPage() {
     setEventProviders(rows.map((row) => ({ ...row, id: row.provider })));
   }
 
+  async function loadQuantDiagnostics() {
+    setQuantMessage("正在檢查後端量化分析就緒度...");
+    try {
+      const payload = await fetchQuantDiagnostics();
+      setQuantDiagnostics(payload);
+      setQuantMessage(`量化就緒度 ${Math.round(payload.readinessScore)} / ${payload.readinessLevel}。${payload.recommendations.join(" ")}`);
+    } catch {
+      setQuantDiagnostics(null);
+      setQuantMessage("量化診斷 API 無法連線；請確認後端 /quant/diagnostics 與 NEXT_PUBLIC_BACKEND_URL。 ");
+    }
+  }
+
   async function loadDeployReadiness() {
     setDeployMessage("正在檢查部署就緒狀態...");
     try {
@@ -76,6 +92,7 @@ export default function DataCenterPage() {
     void fetchMarketProviders().then((rows) => setMarketProviders(rows.map((row) => ({ ...row, id: row.provider }))));
     void loadEventProviders();
     void loadDeployReadiness();
+    void loadQuantDiagnostics();
   }, []);
 
   async function refresh(sourceId?: string) {
@@ -119,6 +136,16 @@ export default function DataCenterPage() {
     { key: "success", header: "成功", accessor: (row) => row.successRows, sortValue: (row) => row.successRows },
     { key: "errors", header: "錯誤", accessor: (row) => row.errorRows, sortValue: (row) => row.errorRows },
     { key: "generated", header: "生成事件", accessor: (row) => row.generatedEvents, sortValue: (row) => row.generatedEvents }
+  ];
+
+  const quantDiagnosticColumns: Array<DataTableColumn<QuantDiagnosticRow>> = [
+    { key: "dataset", header: "Dataset", accessor: (row) => <span className="font-semibold text-slate-950">{row.dataset}</span>, searchValue: (row) => row.dataset },
+    { key: "status", header: "狀態", accessor: (row) => <QuantStatusBadge status={row.status} />, sortValue: (row) => row.status },
+    { key: "records", header: "筆數", accessor: (row) => row.records.toLocaleString("zh-TW"), sortValue: (row) => row.records },
+    { key: "demo", header: "Demo/Fallback", accessor: (row) => row.demoRecords.toLocaleString("zh-TW"), sortValue: (row) => row.demoRecords },
+    { key: "latest", header: "最後更新", accessor: (row) => row.latestTimestamp ? formatDateTW(row.latestTimestamp) : "-", sortValue: (row) => row.latestTimestamp ?? "" },
+    { key: "stale", header: "距今小時", accessor: (row) => typeof row.stalenessHours === "number" ? row.stalenessHours.toFixed(1) : "-", sortValue: (row) => row.stalenessHours ?? 999999 },
+    { key: "warning", header: "提醒", accessor: (row) => <span className="text-amber-700">{row.warning ?? "-"}</span>, searchValue: (row) => row.warning ?? "" }
   ];
 
   const marketColumns: Array<DataTableColumn<MarketProviderRow>> = [
@@ -166,6 +193,7 @@ export default function DataCenterPage() {
         const payload = await fetchKLine("2330", "1d", "1y");
         setMarketMessage(`2330 日 K 測試完成：${payload.bars.length} 筆，來源 ${payload.provider} / ${payload.dataSource}。`);
       }
+      void loadQuantDiagnostics();
     } catch {
       setMarketMessage("市場資料測試失敗；前端會保留 fallback，不影響頁面使用。");
     }
@@ -196,6 +224,7 @@ export default function DataCenterPage() {
     }
   }
 
+  const quantRows = quantDiagnostics?.datasets.map((row) => ({ ...row, id: row.dataset })) ?? [];
   const qualityItems = [
     { label: "匯入事件", value: imported.events.length },
     { label: "後端事件 Provider", value: eventProviders.length },
@@ -203,7 +232,7 @@ export default function DataCenterPage() {
     { label: "股價快照", value: imported.priceSnapshots.length },
     { label: "法人籌碼", value: imported.institutionalFlows.length },
     { label: "注意 / 處置", value: imported.marketWarnings.length + officialWarnings.length },
-    { label: "月營收", value: imported.monthlyRevenues.length },
+    { label: "量化就緒", value: quantDiagnostics ? Math.round(quantDiagnostics.readinessScore) : 0 },
     { label: "財報 / 股利", value: imported.earnings.length + imported.dividends.length }
   ];
 
@@ -212,7 +241,7 @@ export default function DataCenterPage() {
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <p className="text-xs font-semibold tracking-[0.18em] text-emerald-700">DATA SOURCE CENTER</p>
         <h1 className="mt-2 text-2xl font-semibold text-slate-950">資料狀態中心</h1>
-        <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">管理 TWSE / TPEx / MOPS placeholder、CSV 匯入、後端事件 provider 與 Demo fallback。官方資料讀取失敗時會顯示錯誤，不會造成白屏。</p>
+        <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">管理 TWSE / TPEx / MOPS placeholder、CSV 匯入、後端事件 provider、量化就緒度與 Demo fallback。官方資料讀取失敗時會顯示錯誤，不會造成白屏。</p>
       </section>
 
       <SectionCard title="部署就緒檢查" action={<button className="rounded-md border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm font-semibold text-cyan-800" onClick={() => void loadDeployReadiness()}>重新檢查</button>}>
@@ -237,6 +266,26 @@ export default function DataCenterPage() {
           <DataSourceBadge source="Demo" />
           <span>Hybrid 模式會在缺資料時使用示範 fallback，且不得假裝真實。</span>
         </div>
+      </SectionCard>
+
+      <SectionCard title="量化分析就緒度" action={<button className="rounded-md border border-violet-200 bg-violet-50 px-3 py-2 text-sm font-semibold text-violet-800" onClick={() => void loadQuantDiagnostics()}>重新檢查量化資料</button>}>
+        <div className="mb-3 grid gap-3 md:grid-cols-3">
+          <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+            <div className="text-xs text-slate-500">Readiness Score</div>
+            <div className="mt-1 text-2xl font-semibold text-slate-950">{quantDiagnostics ? Math.round(quantDiagnostics.readinessScore) : "-"}</div>
+          </div>
+          <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+            <div className="text-xs text-slate-500">Readiness Level</div>
+            <div className="mt-2"><QuantLevelBadge level={quantDiagnostics?.readinessLevel ?? "not_ready"} /></div>
+          </div>
+          <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+            <div className="text-xs text-slate-500">Datasets</div>
+            <div className="mt-1 text-2xl font-semibold text-slate-950">{quantRows.length}</div>
+          </div>
+        </div>
+        <DataTable rows={quantRows} columns={quantDiagnosticColumns} emptyMessage="尚未取得量化資料診斷。" />
+        <p className="mt-3 text-sm text-amber-700">{quantMessage}</p>
+        <WarningList warnings={quantDiagnostics?.recommendations ?? []} />
       </SectionCard>
 
       <SectionCard title="事件資料源" action={<button className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800" onClick={() => void testEvents()}>測試事件 Provider</button>}>
@@ -276,6 +325,16 @@ export default function DataCenterPage() {
 function StatusBadge({ status }: { status: SourceHealth["status"] }) {
   const level = status === "ok" ? "low" : status === "degraded" ? "medium" : "high";
   return <div className="flex items-center gap-2"><RiskBadge level={level} /><span className="text-xs text-slate-500">{status}</span></div>;
+}
+
+function QuantStatusBadge({ status }: { status: string }) {
+  const level = status === "ok" ? "low" : status === "stale" || status === "degraded" ? "medium" : "high";
+  return <div className="flex items-center gap-2"><RiskBadge level={level} /><span className="text-xs text-slate-500">{status}</span></div>;
+}
+
+function QuantLevelBadge({ level }: { level: string }) {
+  const risk = level === "ready" ? "low" : level === "usable_with_warnings" ? "medium" : level === "limited" ? "high" : "critical";
+  return <div className="flex items-center gap-2"><RiskBadge level={risk} /><span className="text-xs text-slate-600">{level}</span></div>;
 }
 
 function DeployStatusBadge({ status }: { status: DeployReadinessCheck["status"] }) {
