@@ -53,7 +53,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="lg:pl-72">
         <TopBar />
         <MobileNav pathname={pathname} />
-        <main className="mx-auto max-w-[1680px] px-3 py-5 sm:px-5 lg:px-8">{children}</main>
+        <main className="mx-auto max-w-[1680px] px-3 py-3 sm:px-5 sm:py-4 lg:px-6 lg:py-4">{children}</main>
       </div>
     </div>
   );
@@ -62,20 +62,20 @@ export function AppShell({ children }: { children: ReactNode }) {
 export function Sidebar({ pathname }: { pathname: string }) {
   return (
     <aside className="fixed inset-y-0 left-0 z-30 hidden w-72 border-r border-slate-800/90 bg-slate-950/94 shadow-2xl shadow-cyan-950/20 backdrop-blur-xl lg:block">
-      <div className="relative overflow-hidden border-b border-slate-800/90 px-5 py-5">
+      <div className="relative overflow-hidden border-b border-slate-800/90 px-5 py-4">
         <div className="absolute -right-10 -top-10 h-28 w-28 rounded-full bg-cyan-500/12 blur-2xl" />
         <div className="absolute -bottom-10 left-4 h-24 w-24 rounded-full bg-emerald-500/10 blur-2xl" />
         <div className="relative">
           <div className="inline-flex rounded border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-[10px] font-bold tracking-[0.2em] text-emerald-300">QEAL-TW</div>
           <div className="mt-3 text-sm font-semibold tracking-wide text-slate-100">Quant Event Alpha Lab Taiwan</div>
           <div className="mt-1 text-xs text-slate-400">台股量化事件研究室</div>
-          <div className="mt-4 grid grid-cols-2 gap-2 text-[11px]">
+          <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
             <span className="rounded-lg border border-cyan-400/20 bg-cyan-400/10 px-2 py-1 text-cyan-200">Event-driven</span>
             <span className="rounded-lg border border-emerald-400/20 bg-emerald-400/10 px-2 py-1 text-emerald-200">Risk-first</span>
           </div>
         </div>
       </div>
-      <nav className="h-[calc(100vh-148px)] space-y-1 overflow-y-auto p-3">
+      <nav className="h-[calc(100vh-132px)] space-y-1 overflow-y-auto p-3">
         {nav.map(([href, label, Icon, helper]) => {
           const active = pathname === href;
           return (
@@ -104,20 +104,19 @@ export function Sidebar({ pathname }: { pathname: string }) {
 export function TopBar() {
   const autoRefresh = useAutoRefresh();
   return (
-    <header className="sticky top-0 z-20 border-b border-slate-800/80 bg-slate-950/78 px-4 py-3 backdrop-blur-xl sm:px-6 lg:px-8">
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        <div>
+    <header className="sticky top-0 z-20 border-b border-slate-800/80 bg-slate-950/86 px-3 py-2 backdrop-blur-xl sm:px-5 lg:px-6">
+      <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+        <div className="min-w-0">
           <div className="text-sm font-semibold text-slate-100 lg:hidden">台股量化事件研究室</div>
-          <p className="max-w-5xl text-xs leading-5 text-slate-400">
+          <p className="max-w-5xl truncate text-[11px] leading-5 text-slate-400 md:text-xs" title="本工具僅供個人研究、策略模擬、事件追蹤與風險控管，不構成投資建議。所有交易請自行判斷並承擔風險。">
             本工具僅供個人研究、策略模擬、事件追蹤與風險控管，不構成投資建議。所有交易請自行判斷並承擔風險。
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2 text-xs">
+        <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
           <AutoRefreshPill autoRefresh={autoRefresh} />
-          <StatusPill tone="amber">研究資料 / 非投資建議</StatusPill>
+          <StatusPill tone="amber">研究資料</StatusPill>
           <StatusPill tone="cyan">Asia/Taipei</StatusPill>
           <StatusPill tone="emerald">No broker API</StatusPill>
-          <StatusPill tone="slate">Manual risk control</StatusPill>
         </div>
       </div>
     </header>
@@ -129,7 +128,7 @@ function AutoRefreshPill({ autoRefresh }: { autoRefresh: ReturnType<typeof useAu
   const last = autoRefresh.lastRunAt ? new Date(autoRefresh.lastRunAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" }) : "尚未更新";
   return (
     <button
-      className="inline-flex items-center gap-2 rounded-full border border-cyan-400/30 bg-cyan-400/10 px-2.5 py-1 text-cyan-200 disabled:opacity-60"
+      className="inline-flex items-center gap-2 rounded-full border border-cyan-400/30 bg-cyan-400/10 px-2 py-0.5 text-cyan-200 disabled:opacity-60"
       onClick={() => void autoRefresh.refreshNow(true)}
       disabled={!autoRefresh.enabled || autoRefresh.running}
       title="點擊立即刷新一次：報價、法人籌碼、量化掃描與來源摘要"
@@ -166,5 +165,5 @@ function StatusPill({ children, tone }: { children: ReactNode; tone: "amber" | "
     emerald: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200",
     slate: "border-slate-700 bg-slate-900/80 text-slate-300"
   }[tone];
-  return <span className={`rounded-full border px-2.5 py-1 ${toneClass}`}>{children}</span>;
+  return <span className={`rounded-full border px-2 py-0.5 ${toneClass}`}>{children}</span>;
 }
