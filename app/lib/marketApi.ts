@@ -3,6 +3,11 @@
 export type MarketRange = "1d" | "5d" | "1m" | "3m" | "6m" | "ytd" | "1y" | "3y" | "5y" | "custom";
 export type MarketInterval = "1m" | "5m" | "15m" | "1d" | "1w" | "1mo";
 
+export type KLineRequestOptions = {
+  startDate?: string;
+  endDate?: string;
+};
+
 export type QuoteData = {
   symbol: string;
   name: string;
@@ -191,9 +196,14 @@ export async function fetchLatestQuotes(symbols: string[]): Promise<QuoteData[]>
   }
 }
 
-export async function fetchKLine(symbol: string, interval: MarketInterval, range: MarketRange): Promise<KLinePayload> {
+export async function fetchKLine(symbol: string, interval: MarketInterval, range: MarketRange, options: KLineRequestOptions = {}): Promise<KLinePayload> {
   try {
-    const response = await fetchWithTimeout(`${backendUrl}/kline/${encodeURIComponent(symbol)}?interval=${interval}&range=${range}`);
+    const params = new URLSearchParams({ interval, range });
+    if (range === "custom") {
+      if (options.startDate) params.set("startDate", options.startDate);
+      if (options.endDate) params.set("endDate", options.endDate);
+    }
+    const response = await fetchWithTimeout(`${backendUrl}/kline/${encodeURIComponent(symbol)}?${params.toString()}`);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const body = await response.json();
     if (!body.ok || !body.data) throw new Error(body.error ?? "後端沒有回傳 K 線資料。");
