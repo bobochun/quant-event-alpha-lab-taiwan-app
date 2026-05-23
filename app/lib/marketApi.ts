@@ -73,6 +73,29 @@ export type InstitutionalFlowData = {
   fetchedAt: string;
 };
 
+export type MarketWarningItem = {
+  symbol: string;
+  name: string;
+  market: string;
+  warningType: "attention" | "disposition" | "unknown";
+  reason: string;
+  severity: "low" | "medium" | "high" | "critical";
+  effectiveDate?: string | null;
+  endDate?: string | null;
+  provider: string;
+  dataSource: string;
+  sourceUrl?: string | null;
+  sourceNote: string;
+  fetchedAt: string;
+};
+
+export type MarketWarningsPayload = {
+  items: MarketWarningItem[];
+  providerStatus: Array<{ provider: string; status: string; recordsFetched?: number; message?: string }>;
+  sourceNote: string;
+  generatedAt: string;
+};
+
 export type StockProfile = {
   symbol: string;
   name: string;
@@ -177,6 +200,25 @@ export async function fetchKLine(symbol: string, interval: MarketInterval, range
     return body.data as KLinePayload;
   } catch (error) {
     return demoKLine(symbol, interval, range, error instanceof Error ? error.message : "後端連線失敗");
+  }
+}
+
+export async function fetchMarketWarnings(symbols?: string[]): Promise<MarketWarningsPayload> {
+  try {
+    const uniqueSymbols = Array.from(new Set((symbols ?? []).map((symbol) => symbol.trim()).filter(Boolean)));
+    const query = uniqueSymbols.length ? `?${new URLSearchParams({ symbols: uniqueSymbols.join(",") }).toString()}` : "";
+    const response = await fetchWithTimeout(`${backendUrl}/market-data/warnings${query}`, 8000);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const body = await response.json();
+    if (!body.ok || !body.data) throw new Error(body.error ?? "後端沒有回傳官方警示資料。");
+    return body.data as MarketWarningsPayload;
+  } catch (error) {
+    return {
+      items: [],
+      providerStatus: [{ provider: "frontend-warning-fallback", status: "error", recordsFetched: 0, message: error instanceof Error ? error.message : "官方警示資料讀取失敗" }],
+      sourceNote: "官方注意股 / 處置股資料暫時不可用；未使用 Demo 冒充官方警示。",
+      generatedAt: new Date().toISOString()
+    };
   }
 }
 
