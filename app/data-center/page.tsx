@@ -6,6 +6,7 @@ import { ImportTemplatePanel } from "../components/import/ImportTemplatePanel";
 import { DataSourceBadge, MiniMetricGrid, RiskBadge, SectionCard } from "../components/ui";
 import { DataTable, type DataTableColumn } from "../components/ui/DataTable";
 import { fetchBackendEventProviders, type BackendEventProviderStatus } from "../lib/backendEventsApi";
+import { fetchDeployReadiness, type DeployReadinessCheck } from "../lib/deployReadinessApi";
 import { loadImportedDataset, type ImportSummary } from "../lib/importers";
 import { fetchKLine, fetchLatestQuote, fetchMarketProviders, type MarketProviderStatus } from "../lib/marketApi";
 import type { SourceHealth } from "../lib/types";
@@ -14,6 +15,7 @@ import { formatDateTW } from "../lib/utils";
 type SourceRow = SourceHealth & { id: string };
 type MarketProviderRow = MarketProviderStatus & { id: string };
 type EventProviderRow = BackendEventProviderStatus & { id: string };
+type DeployCheckRow = DeployReadinessCheck & { id: string };
 const initialHealth: SourceRow[] = [
   { id: "twse", sourceId: "twse", sourceName: "TWSE OpenAPI", status: "degraded", recordsFetched: 0, errorMessage: "尚未手動刷新。" },
   { id: "tpex", sourceId: "tpex", sourceName: "TPEx OpenAPI", status: "degraded", recordsFetched: 0, errorMessage: "尚未手動刷新。" },
@@ -27,9 +29,11 @@ export default function DataCenterPage() {
   const [health, setHealth] = useState<SourceRow[]>(initialHealth);
   const [marketProviders, setMarketProviders] = useState<MarketProviderRow[]>([]);
   const [eventProviders, setEventProviders] = useState<EventProviderRow[]>([]);
+  const [deployChecks, setDeployChecks] = useState<DeployCheckRow[]>([]);
   const [message, setMessage] = useState("");
   const [marketMessage, setMarketMessage] = useState("");
   const [eventMessage, setEventMessage] = useState("");
+  const [deployMessage, setDeployMessage] = useState("尚未檢查部署就緒狀態。");
   const imported = loadImportedDataset();
   const summaries = imported.summaries;
 
@@ -51,10 +55,24 @@ export default function DataCenterPage() {
     setEventProviders(rows.map((row) => ({ ...row, id: row.provider })));
   }
 
+  async function loadDeployReadiness() {
+    setDeployMessage("正在檢查部署就緒狀態...");
+    try {
+      const payload = await fetchDeployReadiness();
+      setDeployChecks(payload.checks.map((row) => ({ ...row, id: row.id })));
+      const errors = payload.checks.filter((row) => row.status === "error").length;
+      const warnings = payload.checks.filter((row) => row.status === "warning").length;
+      setDeployMessage(`部署檢查完成：${errors} 個錯誤、${warnings} 個提醒。Backend: ${payload.backendUrl}`);
+    } catch {
+      setDeployMessage("部署就緒檢查失敗，請確認 NEXT_PUBLIC_BACKEND_URL 與後端服務狀態。 ");
+    }
+  }
+
   useEffect(() => {
     void loadSourceHealth();
     void fetchMarketProviders().then((rows) => setMarketProviders(rows.map((row) => ({ ...row, id: row.provider }))));
     void loadEventProviders();
+    void loadDeployReadiness();
   }, []);
 
   async function refresh(sourceId?: string) {
@@ -82,6 +100,13 @@ export default function DataCenterPage() {
     { key: "success", header: "最後成功", accessor: (row) => row.lastSuccessAt ? formatDateTW(row.lastSuccessAt) : "-", sortValue: (row) => row.lastSuccessAt ?? "" },
     { key: "failure", header: "最後失敗", accessor: (row) => row.lastFailureAt ? formatDateTW(row.lastFailureAt) : "-", sortValue: (row) => row.lastFailureAt ?? "" },
     { key: "error", header: "錯誤訊息", accessor: (row) => <span className="text-amber-700">{row.errorMessage ?? "-"}</span>, searchValue: (row) => row.errorMessage ?? "" }
+  ];
+
+  const deployColumns: Array<DataTableColumn<DeployCheckRow>> = [
+    { key: "label", header: "檢查項目", accessor: (row) => <span className="font-semibold text-slate-950">{row.label}</span>, searchValue: (row) => row.label },
+    { key: "status", header: "狀態", accessor: (row) => <DeployStatusBadge status={row.status} />, sortValue: (row) => row.status },
+    { key: "value", header: "目前值", accessor: (row) => row.value, searchValue: (row) => row.value },
+    { key: "detail", header: "說明", accessor: (row) => <span className="text-slate-600">{row.detail}</span>, searchValue: (row) => row.detail }
   ];
 
   const importColumns: Array<DataTableColumn<ImportSummary>> = [
@@ -163,6 +188,11 @@ export default function DataCenterPage() {
         <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">管理 TWSE / TPEx / MOPS placeholder、CSV 匯入、後端事件 provider 與 Demo fallback。官方資料讀取失敗時會顯示錯誤，不會造成白屏。</p>
       </section>
 
+      <SectionCard title="部署就緒檢查" action={<button className="rounded-md border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm font-semibold text-cyan-800" onClick={() => void loadDeployReadiness()}>重新檢查</button>}>
+        <DataTable rows={deployChecks} columns={deployColumns} emptyMessage="尚未取得部署就緒檢查。" />
+        <p className="mt-3 text-sm text-amber-700">{deployMessage}</p>
+      </SectionCard>
+
       <SectionCard title="資料源總覽" action={<button className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white" onClick={() => void refresh()}>刷新全部可用官方資料</button>}>
         <DataTable rows={health} columns={sourceColumns} emptyMessage="尚未取得資料源狀態。" primaryAction={(row) => (
           <button className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700" onClick={() => void refresh(row.sourceId)}>刷新</button>
@@ -213,5 +243,10 @@ export default function DataCenterPage() {
 
 function StatusBadge({ status }: { status: SourceHealth["status"] }) {
   const level = status === "ok" ? "low" : status === "degraded" ? "medium" : "high";
+  return <div className="flex items-center gap-2"><RiskBadge level={level} /><span className="text-xs text-slate-500">{status}</span></div>;
+}
+
+function DeployStatusBadge({ status }: { status: DeployReadinessCheck["status"] }) {
+  const level = status === "ok" ? "low" : status === "warning" ? "medium" : "high";
   return <div className="flex items-center gap-2"><RiskBadge level={level} /><span className="text-xs text-slate-500">{status}</span></div>;
 }
