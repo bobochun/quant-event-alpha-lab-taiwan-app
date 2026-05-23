@@ -10,7 +10,7 @@ import { localizeTheme } from "../lib/utils";
 import { fetchBackendEvents } from "../lib/backendEventsApi";
 import { fetchThemeStrength, type ThemeStrengthRow } from "../lib/researchApi";
 import { fetchQuantBatch, type QuantAnalysisResult } from "../lib/quantApi";
-import type { Event } from "../lib/types";
+import type { Event, ThemeHeatResult } from "../lib/types";
 
 const defaultSymbols = "2330,2382,2317,2308,3017,3037,3231,2603,2615,2454";
 const inputClass = "rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-900 outline-none focus:border-cyan-500";
@@ -26,18 +26,19 @@ export default function ThemeRadarPage() {
 
   const symbols = split(symbolsText);
   const fallbackThemes = useMemo(() => calculateThemeHeat(mockThemes, mockEvents, mockStocks), []);
-  const backendThemeRows = themeStrength.map((row) => ({
+  const backendThemeRows: ThemeHeatResult[] = themeStrength.map((row) => ({
     theme: row.theme,
     heatScore: row.averageScore,
     momentum: row.averageReturn20d ?? 0,
     relatedSymbols: row.symbols,
     upcomingEvents: backendEvents.filter((event) => event.relatedThemes.includes(row.theme)).length,
     overheatedSymbols: [],
+    dataSource: "Cached",
     sourceNote: row.note,
     explanation: row.note,
     warnings: row.overheatedCount ? [`${row.overheatedCount} 檔可能過熱，避免追高。`] : []
   }));
-  const themes = backendThemeRows.length ? backendThemeRows : fallbackThemes;
+  const themes: ThemeHeatResult[] = backendThemeRows.length ? backendThemeRows : fallbackThemes;
   const chartData = themes.slice(0, 12).map((theme) => ({ ...theme, 題材: localizeTheme(theme.theme), 熱度分數: Math.round(theme.heatScore) }));
 
   async function loadBackendThemeRadar() {
