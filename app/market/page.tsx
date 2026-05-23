@@ -10,7 +10,10 @@ import { QuoteCard } from "../components/market/QuoteCard";
 import { RangeSelector } from "../components/market/RangeSelector";
 import { SymbolSearch } from "../components/market/SymbolSearch";
 import { DataSourceBadge, RiskBadge, ScoreBadge, WarningList } from "../components/ui";
-import { fetchKLine, fetchLatestQuote, fetchMarketSummary, supportsRealtimePolling, type KLinePayload, type MarketInterval, type MarketRange, type MarketSummaryPayload, type QuoteData } from "../lib/marketApi";
+import { fetchKLine, fetchLatestQuote, fetchMarketSummary, fetchMarketWarnings, supportsRealtimePolling, type KLinePayload, type MarketInterval, type MarketRange, type MarketSummaryPayload, type MarketWarningItem, type QuoteData } from "../lib/marketApi";
+import type { DataSource } from "../lib/types";
+
+const DATA_SOURCES: DataSource[] = ["Real", "Official", "Cached", "Manual", "Imported", "Estimated", "Demo", "Missing", "Error"];
 
 export default function MarketPage() {
   return (
@@ -29,6 +32,8 @@ function MarketPageContent() {
   const [quote, setQuote] = useState<QuoteData | null>(null);
   const [kline, setKline] = useState<KLinePayload | null>(null);
   const [summary, setSummary] = useState<MarketSummaryPayload | null>(null);
+  const [officialWarnings, setOfficialWarnings] = useState<MarketWarningItem[]>([]);
+  const [officialWarningNote, setOfficialWarningNote] = useState("官方注意股 / 處置股資料尚未載入。");
   const [loading, setLoading] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [countdown, setCountdown] = useState(30);
@@ -37,14 +42,17 @@ function MarketPageContent() {
 
   async function load(nextSymbol = symbol, nextInterval = interval, nextRange = range) {
     setLoading(true);
-    const [quoteResult, klineResult, summaryResult] = await Promise.all([
+    const [quoteResult, klineResult, summaryResult, warningResult] = await Promise.all([
       fetchLatestQuote(nextSymbol),
       fetchKLine(nextSymbol, nextInterval, nextRange),
-      fetchMarketSummary(nextSymbol)
+      fetchMarketSummary(nextSymbol),
+      fetchMarketWarnings([nextSymbol])
     ]);
     setQuote(quoteResult);
     setKline(klineResult);
     setSummary(summaryResult);
+    setOfficialWarnings(warningResult.items);
+    setOfficialWarningNote(warningResult.sourceNote);
     setLoading(false);
     setCountdown(30);
   }
@@ -116,6 +124,7 @@ function MarketPageContent() {
 
       <DataSourceNotice quote={quote} kline={kline} />
       <QuoteCard quote={quote} loading={loading} />
+      <OfficialWarningPanel symbol={symbol} warnings={officialWarnings} note={officialWarningNote} loading={loading} />
       <MarketSummaryPanel summary={summary} loading={loading} />
 
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
@@ -139,9 +148,46 @@ function MarketPageContent() {
           <Link className="rounded-md border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm font-semibold text-cyan-800" href={`/signal-radar?symbol=${symbol}`}>量化模式掃描</Link>
           <Link className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white" href={`/trade-plan?symbol=${symbol}&from=market`}>建立交易計畫</Link>
         </div>
-        <p className="mt-3 text-xs leading-5 text-amber-700">帶入最新價只能作為研究參考，請自行確認價格、流動性與風險，不代表建議進場。</p>
+        <p className="mt-3 text-xs leading-5 text-amber-700">帶入最新價只能作為研究參考，請自行確認價格、流動性、注意/處置狀態與風險，不代表建議進場。</p>
       </section>
     </div>
+  );
+}
+
+function OfficialWarningPanel({ symbol, warnings, note, loading }: { symbol: string; warnings: MarketWarningItem[]; note: string; loading: boolean }) {
+  if (loading && !warnings.length) {
+    return <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm text-sm text-slate-500">正在檢查官方注意股 / 處置股...</section>;
+  }
+  return (
+    <section className={`rounded-lg border p-5 shadow-sm ${warnings.length ? "border-amber-200 bg-amber-50" : "border-slate-200 bg-white"}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold tracking-[0.18em] text-amber-700">OFFICIAL RISK FLAGS</p>
+          <h2 className="mt-1 text-lg font-semibold text-slate-950">官方注意 / 處置檢查</h2>
+          <p className="mt-1 text-xs leading-5 text-slate-600">{symbol} 的 TWSE / TPEx 注意股、處置股或匯入警示狀態。endpoint 未設定時會顯示空資料，不會用 Demo 冒充。</p>
+        </div>
+        <DataSourceBadge source={warnings.length ? "Official" : "Missing"} />
+      </div>
+      {warnings.length ? (
+        <div className="mt-3 grid gap-2">
+          {warnings.map((warning) => (
+            <div key={`${warning.provider}-${warning.warningType}-${warning.symbol}-${warning.effectiveDate ?? warning.fetchedAt}`} className="rounded-md border border-amber-200 bg-white p-3 text-sm text-amber-950">
+              <div className="flex flex-wrap items-center gap-2">
+                <RiskBadge level={warning.severity} />
+                <span className="font-semibold">{warning.warningType === "disposition" ? "處置股" : warning.warningType === "attention" ? "注意股" : "市場警示"}</span>
+                <span className="text-xs text-slate-500">{warning.provider} / {warning.market}</span>
+                <span className="text-xs text-slate-500">{warning.effectiveDate ?? "日期未知"}{warning.endDate ? ` ~ ${warning.endDate}` : ""}</span>
+              </div>
+              <p className="mt-2 text-xs leading-5">{warning.reason}</p>
+              <p className="mt-2 text-[11px] leading-5 text-slate-500">{warning.sourceNote}</p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-3 text-sm text-slate-600">目前未命中已設定 endpoint 的官方注意 / 處置資料。仍需自行確認最新交易所公告。</p>
+      )}
+      <p className="mt-3 text-xs leading-5 text-amber-700">{note}</p>
+    </section>
   );
 }
 
@@ -240,6 +286,6 @@ function translateFlow(value: string): string {
   return value === "accumulation" ? "偏累積" : value === "distribution" ? "偏賣壓" : value === "mixed" ? "分歧" : value === "neutral" ? "中性" : "未知";
 }
 
-function normalizeDataSource(value: string): "Real" | "Official" | "Cached" | "Manual" | "Imported" | "Estimated" | "Demo" | "Missing" | "Error" {
-  return ["Real", "Official", "Cached", "Manual", "Imported", "Estimated", "Demo", "Missing", "Error"].includes(value) ? value as ReturnType<typeof normalizeDataSource> : "Estimated";
+function normalizeDataSource(value: string): DataSource {
+  return DATA_SOURCES.includes(value as DataSource) ? value as DataSource : "Estimated";
 }
