@@ -107,6 +107,18 @@ def test_event_providers_status():
     assert any(row["supportsEvents"] for row in body["data"])
 
 
+def test_quant_diagnostics_endpoint():
+    response = client.get("/quant/diagnostics")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert "readinessScore" in body["data"]
+    assert body["data"]["readinessLevel"] in {"ready", "usable_with_warnings", "limited", "not_ready"}
+    datasets = {row["dataset"] for row in body["data"]["datasets"]}
+    assert {"quotes_latest", "price_bars", "factor_scores"}.issubset(datasets)
+    assert isinstance(body["data"]["recommendations"], list)
+
+
 def test_quant_analyze_symbol():
     response = client.get("/quant/analyze/2330?interval=1d&range=1y")
     assert response.status_code == 200
