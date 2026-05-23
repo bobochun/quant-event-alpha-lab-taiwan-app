@@ -4,9 +4,11 @@ import { useState } from "react";
 import { DataSourceBadge, ScoreBadge, SectionCard, WarningList } from "../components/ui";
 import { DataTable, type DataTableColumn } from "../components/ui/DataTable";
 import { fetchCrossSection, fetchDataQuality, fetchWalkForward, optimizePortfolio, runTradingCost, type CrossSectionRank, type DataQualityReport, type PortfolioOptimizeResult, type TradingCostResult, type WalkForwardResult } from "../lib/researchApi";
+import type { DataSource } from "../lib/types";
 
 const defaultSymbols = "2330,2382,2317,2308,3017,3037,3231,2603,2615,2454";
 const inputClass = "rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-900 outline-none focus:border-cyan-500";
+const DATA_SOURCES: DataSource[] = ["Real", "Official", "Cached", "Manual", "Imported", "Estimated", "Demo", "Missing", "Error"];
 
 export default function BacktestLabPage() {
   const [symbolsText, setSymbolsText] = useState(defaultSymbols);
@@ -102,5 +104,5 @@ function split(value: string): string[] { return value.split(/[\s,，]+/).map((i
 function money(value: number): string { return `NT$${Math.round(value).toLocaleString("zh-TW")}`; }
 function nullablePct(value?: number | null): string { return value === null || value === undefined ? "資料不足" : `${value.toFixed(2)}%`; }
 function translate(value: string): string { return value === "bullish" ? "多頭" : value === "bearish" ? "空頭" : value === "sideways" ? "盤整" : value === "warming" ? "升溫" : value === "hot" ? "過熱" : value === "cooling" ? "降溫" : value === "weak" ? "偏弱" : value; }
-function normalizeSource(source: string): "Real" | "Official" | "Cached" | "Manual" | "Imported" | "Estimated" | "Demo" | "Missing" | "Error" { return ["Real", "Official", "Cached", "Manual", "Imported", "Estimated", "Demo", "Missing", "Error"].includes(source) ? source as ReturnType<typeof normalizeSource> : "Estimated"; }
+function normalizeSource(source: string): DataSource { return DATA_SOURCES.includes(source as DataSource) ? source as DataSource : "Estimated"; }
 function MetricList({ items, note }: { items: Array<[string, string]>; note?: string }) { return <div className="space-y-2 text-sm">{items.map(([label, value]) => <div key={label} className="flex justify-between rounded-md border border-slate-200 bg-slate-50 px-3 py-2"><span className="text-slate-500">{label}</span><span className="font-semibold text-slate-950">{value}</span></div>)}{note ? <p className="text-xs leading-5 text-slate-500">{note}</p> : null}</div>; }
