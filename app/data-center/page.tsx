@@ -8,7 +8,7 @@ import { DataTable, type DataTableColumn } from "../components/ui/DataTable";
 import { fetchBackendEventProviders, type BackendEventProviderStatus } from "../lib/backendEventsApi";
 import { fetchDeployReadiness, type DeployReadinessCheck } from "../lib/deployReadinessApi";
 import { loadImportedDataset, type ImportSummary } from "../lib/importers";
-import { fetchKLine, fetchLatestQuote, fetchMarketProviders, type MarketProviderStatus } from "../lib/marketApi";
+import { fetchKLine, fetchLatestQuote, fetchMarketProviders, fetchMarketWarnings, type MarketProviderStatus, type MarketWarningItem } from "../lib/marketApi";
 import type { SourceHealth } from "../lib/types";
 import { formatDateTW } from "../lib/utils";
 
@@ -16,6 +16,7 @@ type SourceRow = SourceHealth & { id: string };
 type MarketProviderRow = MarketProviderStatus & { id: string };
 type EventProviderRow = BackendEventProviderStatus & { id: string };
 type DeployCheckRow = DeployReadinessCheck & { id: string };
+type WarningRow = MarketWarningItem & { id: string };
 const initialHealth: SourceRow[] = [
   { id: "twse", sourceId: "twse", sourceName: "TWSE OpenAPI", status: "degraded", recordsFetched: 0, errorMessage: "尚未手動刷新。" },
   { id: "tpex", sourceId: "tpex", sourceName: "TPEx OpenAPI", status: "degraded", recordsFetched: 0, errorMessage: "尚未手動刷新。" },
@@ -30,9 +31,11 @@ export default function DataCenterPage() {
   const [marketProviders, setMarketProviders] = useState<MarketProviderRow[]>([]);
   const [eventProviders, setEventProviders] = useState<EventProviderRow[]>([]);
   const [deployChecks, setDeployChecks] = useState<DeployCheckRow[]>([]);
+  const [officialWarnings, setOfficialWarnings] = useState<WarningRow[]>([]);
   const [message, setMessage] = useState("");
   const [marketMessage, setMarketMessage] = useState("");
   const [eventMessage, setEventMessage] = useState("");
+  const [warningMessage, setWarningMessage] = useState("官方注意股 / 處置股 endpoint 未測試。未設定 endpoint 時會顯示 Missing，不會使用 Demo 冒充官方警示。");
   const [deployMessage, setDeployMessage] = useState("尚未檢查部署就緒狀態。");
   const imported = loadImportedDataset();
   const summaries = imported.summaries;
@@ -142,6 +145,17 @@ export default function DataCenterPage() {
     { key: "note", header: "說明", accessor: (row) => <span className="text-amber-700">{row.errorMessage ?? row.sourceNote}</span>, searchValue: (row) => `${row.errorMessage ?? ""} ${row.sourceNote}` }
   ];
 
+  const warningColumns: Array<DataTableColumn<WarningRow>> = [
+    { key: "symbol", header: "代號", accessor: (row) => <span className="font-semibold text-slate-950">{row.symbol}</span>, searchValue: (row) => row.symbol },
+    { key: "name", header: "名稱", accessor: (row) => row.name, searchValue: (row) => row.name },
+    { key: "market", header: "市場", accessor: (row) => row.market, searchValue: (row) => row.market },
+    { key: "type", header: "類型", accessor: (row) => row.warningType === "disposition" ? "處置" : row.warningType === "attention" ? "注意" : "未知", searchValue: (row) => row.warningType },
+    { key: "severity", header: "嚴重度", accessor: (row) => <RiskBadge level={row.severity} />, sortValue: (row) => row.severity },
+    { key: "date", header: "生效日", accessor: (row) => row.effectiveDate ?? "-", sortValue: (row) => row.effectiveDate ?? "" },
+    { key: "provider", header: "Provider", accessor: (row) => row.provider, searchValue: (row) => row.provider },
+    { key: "reason", header: "原因", accessor: (row) => <span className="block max-w-96 truncate" title={row.reason}>{row.reason}</span>, searchValue: (row) => row.reason }
+  ];
+
   async function testMarket(kind: "quote" | "kline") {
     setMarketMessage("正在測試 2330 市場資料...");
     try {
@@ -154,6 +168,19 @@ export default function DataCenterPage() {
       }
     } catch {
       setMarketMessage("市場資料測試失敗；前端會保留 fallback，不影響頁面使用。");
+    }
+  }
+
+  async function testWarnings() {
+    setWarningMessage("正在測試官方注意股 / 處置股資料...");
+    try {
+      const payload = await fetchMarketWarnings(["2330", "2382", "3017", "3231"]);
+      setOfficialWarnings(payload.items.map((row) => ({ ...row, id: `${row.provider}-${row.warningType}-${row.symbol}-${row.effectiveDate ?? row.fetchedAt}` })));
+      const providerSummary = payload.providerStatus.map((row) => `${row.provider}:${row.status}${typeof row.recordsFetched === "number" ? `(${row.recordsFetched})` : ""}`).join("、");
+      setWarningMessage(`官方警示測試完成：${payload.items.length} 筆。${providerSummary}。${payload.sourceNote}`);
+    } catch {
+      setWarningMessage("官方警示測試失敗；不會使用 Demo 冒充注意股 / 處置股。 ");
+      setOfficialWarnings([]);
     }
   }
 
@@ -175,7 +202,7 @@ export default function DataCenterPage() {
     { label: "後端正式事件", value: eventProviders.reduce((sum, row) => sum + row.recordsFetched, 0) },
     { label: "股價快照", value: imported.priceSnapshots.length },
     { label: "法人籌碼", value: imported.institutionalFlows.length },
-    { label: "注意 / 處置", value: imported.marketWarnings.length },
+    { label: "注意 / 處置", value: imported.marketWarnings.length + officialWarnings.length },
     { label: "月營收", value: imported.monthlyRevenues.length },
     { label: "財報 / 股利", value: imported.earnings.length + imported.dividends.length }
   ];
@@ -215,6 +242,11 @@ export default function DataCenterPage() {
       <SectionCard title="事件資料源" action={<button className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800" onClick={() => void testEvents()}>測試事件 Provider</button>}>
         <DataTable rows={eventProviders} columns={eventColumns} emptyMessage="尚未取得事件 provider 狀態。" />
         <p className="mt-3 text-sm text-amber-700">{eventMessage || "FinMind 事件 adapter 需要 token；MOPS / TWSE / TPEx 目前保守顯示 provider 狀態與 metadata，不做激進爬蟲。"}</p>
+      </SectionCard>
+
+      <SectionCard title="官方注意股 / 處置股" action={<button className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800" onClick={() => void testWarnings()}>測試官方警示</button>}>
+        <DataTable rows={officialWarnings} columns={warningColumns} emptyMessage="尚未取得官方注意股 / 處置股資料。若 endpoint 未設定，這裡會維持空白而不使用 Demo 冒充。" />
+        <p className="mt-3 text-sm text-amber-700">{warningMessage}</p>
       </SectionCard>
 
       <SectionCard title="報價與 K 線資料源" action={<div className="flex flex-wrap gap-2"><button className="rounded-md border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm font-semibold text-cyan-800" onClick={() => void testMarket("quote")}>測試 2330 最新價</button><button className="rounded-md border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm font-semibold text-cyan-800" onClick={() => void testMarket("kline")}>測試 2330 日 K</button></div>}>
