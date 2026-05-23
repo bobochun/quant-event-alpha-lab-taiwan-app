@@ -5,9 +5,10 @@ import json
 import math
 import statistics
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models.market import DataQualityReportModel, FactorScoreModel
+from app.models.market import DataQualityReportModel, FactorScoreModel, PriceBarModel, QuoteLatestModel
 from app.schemas.research import (
     CrossSectionPayload,
     CrossSectionRank,
@@ -53,6 +54,10 @@ class ResearchService:
         benchmark_bars = sorted(benchmark_payload.bars, key=lambda item: item.time)
         if len(symbol_bars) < request.pre_days + 2:
             warnings.append("事件標的 K 線樣本不足，事件研究結果可信度低。")
+        if symbol_payload.data_source in {"Demo", "Estimated"}:
+            warnings.append("事件標的使用 Demo / Estimated 價格資料，abnormal return 僅供流程驗證。")
+        if benchmark_payload.data_source in {"Demo", "Estimated"}:
+            warnings.append("Benchmark 使用 Demo / Estimated 資料，abnormal return 可信度降低。")
         pre_return = window_return(symbol_bars, event_day, -request.pre_days, -1)
         post_return = window_return(symbol_bars, event_day, 1, request.post_days)
         benchmark_pre = window_return(benchmark_bars, event_day, -request.pre_days, -1)
@@ -101,9 +106,16 @@ class ResearchService:
                 dataSource=result.data_source,
                 warnings=result.warnings,
             ))
+        warnings = list(payload.warnings)
+        demo_count = sum(1 for row in payload.results if row.data_source == "Demo")
+        low_quality_count = sum(1 for row in payload.results if row.data_quality == "low")
+        if demo_count:
+            warnings.append(f"{demo_count}/{total} 檔使用 Demo fallback，橫截面排名不可視為真實市場排序。")
+        if low_quality_count:
+            warnings.append(f"{low_quality_count}/{total} 檔資料品質偏低，請先補行情資料再做量化排名。")
         if persist and db:
             self._persist_factor_scores(payload.results, ranks, db)
-        return CrossSectionPayload(asOf=datetime.now(timezone.utc).isoformat(), universeSize=total, ranks=ranks, warnings=payload.warnings)
+        return CrossSectionPayload(asOf=datetime.now(timezone.utc).isoformat(), universeSize=total, ranks=ranks, warnings=warnings)
 
     async def theme_strength(self, symbols: list[str] | None = None, theme_map: dict[str, list[str]] | None = None) -> list[ThemeStrengthRow]:
         effective_map = theme_map or DEFAULT_THEME_MAP
@@ -135,25 +147,30 @@ class ResearchService:
         return rows
 
     async def data_quality(self, db: Session | None = None) -> list[DataQualityReport]:
-        now = datetime.now(timezone.utc).isoformat()
-        checks = [
-            ("quotes_latest", "backend", 0.05, 0.15, 0.02),
-            ("price_bars", "backend", 0.08, 0.10, 0.03),
-            ("events", "backend-events", 0.25, 0.30, 0.05),
-            ("quant_scores", "request-time", 0.10, 0.00, 0.02),
+        now = datetime.now(timezone.utc)
+        if not db:
+            return self._static_data_quality(now)
+        reports = [
+            self._quote_quality(db, now),
+            self._price_bar_quality(db, now),
+            self._factor_score_quality(db, now),
+            self._event_quality_placeholder(now),
         ]
-        reports: list[DataQualityReport] = []
-        for dataset, provider, missing, stale, error in checks:
-            score = max(0, round(100 - missing * 100 - stale * 50 - error * 100, 2))
-            warning = None
-            if score < 70:
-                warning = "資料品質偏低；請檢查 provider token、欄位缺值與更新時間。"
-            report = DataQualityReport(dataset=dataset, provider=provider, recordsChecked=0, missingRate=missing, staleRate=stale, errorRate=error, score=score, warning=warning, checkedAt=now)
-            reports.append(report)
-            if db:
-                db.add(DataQualityReportModel(dataset=dataset, provider=provider, records_checked=0, missing_rate=missing, stale_rate=stale, error_rate=error, score=score, warning=warning))
-        if db:
+        for report in reports:
+            db.add(DataQualityReportModel(
+                dataset=report.dataset,
+                provider=report.provider,
+                records_checked=report.records_checked,
+                missing_rate=report.missing_rate,
+                stale_rate=report.stale_rate,
+                error_rate=report.error_rate,
+                score=report.score,
+                warning=report.warning,
+            ))
+        try:
             db.commit()
+        except Exception:
+            db.rollback()
         return reports
 
     async def optimize_portfolio(self, request: PortfolioOptimizeInput) -> PortfolioOptimizeResult:
@@ -175,12 +192,16 @@ class ResearchService:
         for theme, pct in theme_exposure.items():
             if pct > request.max_theme_pct * 100:
                 warnings.append(f"{theme} 題材曝險 {pct:.1f}% 高於上限 {request.max_theme_pct * 100:.1f}%。")
+        if cross.warnings:
+            warnings.extend(cross.warnings[:3])
         return PortfolioOptimizeResult(capital=request.capital, weights=weights, themeExposure={key: round(value, 2) for key, value in theme_exposure.items()}, warnings=warnings, sourceNote="Simple score-weighted optimizer with max position and theme exposure guardrails; not a portfolio recommendation.")
 
     async def walk_forward(self, symbols: list[str] | None = None) -> WalkForwardResult:
         cross = await self.cross_section(symbols or DEFAULT_UNIVERSE[:8], persist=False)
         sample = [row for row in cross.ranks if row.data_quality != "low"]
         warnings = ["Walk-forward MVP uses current cross-section snapshot only; persistent historical factor_scores are required for true validation."]
+        if cross.warnings:
+            warnings.extend(cross.warnings[:3])
         hit_rate = None
         average_forward = None
         if sample:
@@ -203,33 +224,79 @@ class ResearchService:
     def _persist_factor_scores(self, results, ranks: list[CrossSectionRank], db: Session) -> None:
         rank_by_symbol = {row.symbol: row for row in ranks}
         score_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-        for result in results:
-            rank = rank_by_symbol[result.symbol]
-            db.add(FactorScoreModel(
-                symbol=result.symbol,
-                name=result.name,
-                score_date=score_date,
-                model_version="quant-v1",
-                quant_score=result.quant_score,
-                rank=rank.rank,
-                percentile=rank.percentile,
-                trend_score=result.breakdown.trend_score,
-                momentum_score=result.breakdown.momentum_score,
-                volatility_score=result.breakdown.volatility_score,
-                rsi_score=result.breakdown.rsi_score,
-                ma_structure_score=result.breakdown.ma_structure_score,
-                volume_score=result.breakdown.volume_score,
-                overheat_penalty=result.breakdown.overheat_penalty,
-                data_quality_penalty=result.breakdown.data_quality_penalty,
-                provider=result.provider,
-                data_source=result.data_source,
-                warnings_json=json.dumps(result.warnings, ensure_ascii=False),
-                explanation=result.explanation,
-            ))
+        symbols = [result.symbol for result in results]
         try:
+            db.query(FactorScoreModel).filter(
+                FactorScoreModel.symbol.in_(symbols),
+                FactorScoreModel.score_date == score_date,
+                FactorScoreModel.model_version == "quant-v1",
+            ).delete(synchronize_session=False)
+            for result in results:
+                rank = rank_by_symbol[result.symbol]
+                db.add(FactorScoreModel(
+                    symbol=result.symbol,
+                    name=result.name,
+                    score_date=score_date,
+                    model_version="quant-v1",
+                    quant_score=result.quant_score,
+                    rank=rank.rank,
+                    percentile=rank.percentile,
+                    trend_score=result.breakdown.trend_score,
+                    momentum_score=result.breakdown.momentum_score,
+                    volatility_score=result.breakdown.volatility_score,
+                    rsi_score=result.breakdown.rsi_score,
+                    ma_structure_score=result.breakdown.ma_structure_score,
+                    volume_score=result.breakdown.volume_score,
+                    overheat_penalty=result.breakdown.overheat_penalty,
+                    data_quality_penalty=result.breakdown.data_quality_penalty,
+                    provider=result.provider,
+                    data_source=result.data_source,
+                    warnings_json=json.dumps(result.warnings, ensure_ascii=False),
+                    explanation=result.explanation,
+                ))
             db.commit()
         except Exception:
             db.rollback()
+
+    def _quote_quality(self, db: Session, now: datetime) -> DataQualityReport:
+        total = db.query(QuoteLatestModel).count()
+        demo = db.query(QuoteLatestModel).filter(QuoteLatestModel.data_source == "Demo").count()
+        latest = db.query(func.max(QuoteLatestModel.fetched_at)).scalar()
+        stale_rate = stale_rate_from_latest(latest, now, stale_after_hours=6)
+        missing_rate = 1.0 if total == 0 else demo / total
+        warning = quality_warning("quotes_latest", total, missing_rate, stale_rate, 0)
+        return make_quality_report("quotes_latest", "database", total, missing_rate, stale_rate, 0, now, warning)
+
+    def _price_bar_quality(self, db: Session, now: datetime) -> DataQualityReport:
+        total = db.query(PriceBarModel).count()
+        demo = db.query(PriceBarModel).filter(PriceBarModel.data_source == "Demo").count()
+        latest = db.query(func.max(PriceBarModel.fetched_at)).scalar()
+        stale_rate = stale_rate_from_latest(latest, now, stale_after_hours=36)
+        missing_rate = 1.0 if total == 0 else demo / total
+        warning = quality_warning("price_bars", total, missing_rate, stale_rate, 0)
+        return make_quality_report("price_bars", "database", total, missing_rate, stale_rate, 0, now, warning)
+
+    def _factor_score_quality(self, db: Session, now: datetime) -> DataQualityReport:
+        total = db.query(FactorScoreModel).count()
+        demo = db.query(FactorScoreModel).filter(FactorScoreModel.data_source == "Demo").count()
+        latest = db.query(func.max(FactorScoreModel.created_at)).scalar()
+        stale_rate = stale_rate_from_latest(latest, now, stale_after_hours=30)
+        missing_rate = 1.0 if total == 0 else demo / total
+        warning = quality_warning("factor_scores", total, missing_rate, stale_rate, 0)
+        return make_quality_report("factor_scores", "database", total, missing_rate, stale_rate, 0, now, warning)
+
+    def _event_quality_placeholder(self, now: datetime) -> DataQualityReport:
+        warning = "事件資料尚未完全資料庫化；目前依 backend event adapters / imported / manual / demo fallback 混合。"
+        return make_quality_report("events", "backend-events", 0, 0.35, 0.25, 0.05, now, warning)
+
+    def _static_data_quality(self, now: datetime) -> list[DataQualityReport]:
+        checks = [
+            ("quotes_latest", "backend", 0.05, 0.15, 0.02),
+            ("price_bars", "backend", 0.08, 0.10, 0.03),
+            ("events", "backend-events", 0.25, 0.30, 0.05),
+            ("factor_scores", "request-time", 0.20, 0.30, 0.02),
+        ]
+        return [make_quality_report(dataset, provider, 0, missing, stale, error, now, quality_warning(dataset, 0, missing, stale, error)) for dataset, provider, missing, stale, error in checks]
 
 
 def parse_date(value: str) -> date | None:
@@ -282,3 +349,47 @@ def safe_sub(left: float | None, right: float | None) -> float | None:
     if left is None or right is None:
         return None
     return round(left - right, 2)
+
+
+def stale_rate_from_latest(latest: datetime | None, now: datetime, stale_after_hours: int) -> float:
+    if not latest:
+        return 1.0
+    if latest.tzinfo is None:
+        latest = latest.replace(tzinfo=timezone.utc)
+    age_hours = max(0.0, (now - latest).total_seconds() / 3600)
+    if age_hours <= stale_after_hours:
+        return 0.0
+    if age_hours >= stale_after_hours * 4:
+        return 1.0
+    return round((age_hours - stale_after_hours) / (stale_after_hours * 3), 4)
+
+
+def quality_score(missing_rate: float, stale_rate: float, error_rate: float) -> float:
+    return max(0, round(100 - missing_rate * 70 - stale_rate * 25 - error_rate * 100, 2))
+
+
+def quality_warning(dataset: str, records_checked: int, missing_rate: float, stale_rate: float, error_rate: float) -> str | None:
+    if records_checked == 0:
+        return f"{dataset} 目前資料庫沒有紀錄；量化分析會依 provider 即時計算或 fallback。"
+    score = quality_score(missing_rate, stale_rate, error_rate)
+    if score < 70:
+        return f"{dataset} 資料品質偏低；missing/demo ratio {missing_rate:.1%}, stale {stale_rate:.1%}, error {error_rate:.1%}。"
+    if missing_rate > 0.25:
+        return f"{dataset} Demo / fallback 比例偏高，請補真實資料源。"
+    if stale_rate > 0.25:
+        return f"{dataset} 更新時間偏舊，請執行刷新 job。"
+    return None
+
+
+def make_quality_report(dataset: str, provider: str, records: int, missing: float, stale: float, error: float, now: datetime, warning: str | None) -> DataQualityReport:
+    return DataQualityReport(
+        dataset=dataset,
+        provider=provider,
+        recordsChecked=records,
+        missingRate=round(missing * 100, 2),
+        staleRate=round(stale * 100, 2),
+        errorRate=round(error * 100, 2),
+        score=quality_score(missing, stale, error),
+        warning=warning,
+        checkedAt=now.isoformat(),
+    )
