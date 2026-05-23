@@ -54,8 +54,25 @@ async def run_job(request: JobRunRequest, db: Session = Depends(get_db)):
         quotes = await service.refresh_quotes(RefreshQuotesRequest(symbols=symbols, provider="auto"))
         return ok_response({"jobName": request.job_name, "recordsProcessed": len(quotes)}, "Demo", "Job 已同步執行；排程化可接 APScheduler。")
     if request.job_name == "refresh_daily_kline":
-        payload = await service.refresh_kline(RefreshKLineRequest(symbol=symbols[0], interval="1d", range="1y", provider="auto"))
-        return ok_response({"jobName": request.job_name, "recordsProcessed": len(payload.bars)}, payload.data_source, "Job 已同步執行；排程化可接 APScheduler。")
+        results = []
+        total_bars = 0
+        data_sources: list[str] = []
+        for symbol in symbols:
+            payload = await service.refresh_kline(RefreshKLineRequest(symbol=symbol, interval="1d", range="1y", provider="auto"))
+            total_bars += len(payload.bars)
+            data_sources.append(payload.data_source)
+            results.append({
+                "symbol": payload.symbol,
+                "name": payload.name,
+                "bars": len(payload.bars),
+                "provider": payload.provider,
+                "dataSource": payload.data_source,
+                "isRealtime": payload.is_realtime,
+                "delayMinutes": payload.delay_minutes,
+                "fetchedAt": payload.fetched_at,
+            })
+        data_source = "Cached" if any(source != "Demo" for source in data_sources) else "Demo"
+        return ok_response({"jobName": request.job_name, "recordsProcessed": total_bars, "symbolsProcessed": len(results), "results": results}, data_source, "已逐檔刷新整批日 K；若 provider 不可用，該檔會明確標示 fallback 來源。")
     if request.job_name in {"refresh_factor_scores", "quant_scan_daily"}:
         payload = await research.cross_section(symbols, persist=True, db=db)
         return ok_response({"jobName": request.job_name, "recordsProcessed": len(payload.ranks), "universeSize": payload.universe_size}, "Cached", "每日因子分數已計算並嘗試持久化到 factor_scores。")
