@@ -32,6 +32,33 @@ const validEventTypes: EventType[] = [
 ];
 const validDataSources: DataSource[] = ["Real", "Official", "Cached", "Manual", "Imported", "Estimated", "Demo", "Missing", "Error"];
 
+export async function fetchBackendEventProviders(): Promise<BackendEventProviderStatus[]> {
+  try {
+    const response = await fetchWithTimeout(`${backendUrl}/events/providers`, 5000);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const body = await response.json();
+    if (!body.ok || !Array.isArray(body.data)) throw new Error(body.error ?? "後端沒有回傳事件 provider 狀態。");
+    return body.data as BackendEventProviderStatus[];
+  } catch {
+    return [
+      {
+        provider: "backend-events",
+        status: "error",
+        supportsEvents: false,
+        supportsMonthlyRevenue: false,
+        supportsDividends: false,
+        supportsInvestorConference: false,
+        supportsAttentionDisposition: false,
+        tokenConfigured: false,
+        recordsFetched: 0,
+        errorMessage: "後端事件 provider API 暫時不可用。",
+        sourceNote: "請確認 backend 已啟動且 NEXT_PUBLIC_BACKEND_URL 正確。",
+        checkedAt: new Date().toISOString()
+      }
+    ];
+  }
+}
+
 export async function fetchBackendEvents(options: { days?: number; symbols?: string[]; provider?: "auto" | "finmind" | "official" | "mops" } = {}): Promise<BackendEventsResult> {
   const params = new URLSearchParams();
   params.set("days", String(options.days ?? 30));
