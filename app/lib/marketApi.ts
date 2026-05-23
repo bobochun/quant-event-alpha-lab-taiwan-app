@@ -152,6 +152,22 @@ export async function fetchLatestQuote(symbol: string): Promise<QuoteData> {
   }
 }
 
+export async function fetchLatestQuotes(symbols: string[]): Promise<QuoteData[]> {
+  const uniqueSymbols = Array.from(new Set(symbols.map((symbol) => symbol.trim()).filter(Boolean)));
+  if (!uniqueSymbols.length) return [];
+  try {
+    const params = new URLSearchParams({ symbols: uniqueSymbols.join(",") });
+    const response = await fetchWithTimeout(`${backendUrl}/quotes/latest?${params.toString()}`, 9000);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const body = await response.json();
+    if (!body.ok || !Array.isArray(body.data)) throw new Error(body.error ?? "後端沒有回傳批次報價資料。");
+    return body.data as QuoteData[];
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "後端批次報價連線失敗";
+    return uniqueSymbols.map((symbol) => demoQuote(symbol, reason));
+  }
+}
+
 export async function fetchKLine(symbol: string, interval: MarketInterval, range: MarketRange): Promise<KLinePayload> {
   try {
     const response = await fetchWithTimeout(`${backendUrl}/kline/${encodeURIComponent(symbol)}?interval=${interval}&range=${range}`);
@@ -358,5 +374,5 @@ function basePrice(symbol: string): number {
 }
 
 function rangeDays(range: MarketRange): number {
-  return ({ "1d": 1, "5d": 8, "1m": 31, "3m": 93, "6m": 186, ytd: Math.max(1, Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 1).getTime()) / 86400000)), "1y": 366, "3y": 1098, "5y": 1830, custom: 366 } as Record<MarketRange, number>)[range];
+  return range === "1d" ? 1 : range === "5d" ? 5 : range === "1m" ? 31 : range === "3m" ? 93 : range === "6m" ? 186 : range === "ytd" ? 180 : range === "3y" ? 366 * 3 : range === "5y" ? 366 * 5 : 366;
 }
