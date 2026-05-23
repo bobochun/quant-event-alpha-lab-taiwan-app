@@ -1,10 +1,12 @@
 from functools import lru_cache
 import os
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
     app_name: str = "Quant Event Alpha Lab Taiwan Market Backend"
     app_version: str = "0.1.0"
     app_env: str = "development"
@@ -56,10 +58,6 @@ class Settings(BaseSettings):
     scheduler_quant_minutes: int = 120
     scheduler_digest_minutes: int = 240
     scheduler_ai_minutes: int = 360
-
-    class Config:
-        env_file = ".env"
-        extra = "ignore"
 
     @property
     def cors_origin_list(self) -> list[str]:
