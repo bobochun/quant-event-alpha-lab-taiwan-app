@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     twse_openapi_base_url: str = "https://openapi.twse.com.tw/v1"
     tpex_openapi_base_url: str = "https://www.tpex.org.tw/openapi"
     official_data_timeout_ms: int = 8000
+    twse_attention_endpoint: str = ""
+    twse_disposition_endpoint: str = ""
+    tpex_attention_endpoint: str = ""
+    tpex_disposition_endpoint: str = ""
 
     market_data_cache_seconds: int = 10
     quote_cache_seconds: int = 10
@@ -95,6 +99,12 @@ def get_settings() -> Settings:
             r"https://.*\.(vercel\.app|app\.github\.dev)$",
         ),
         official_data_timeout_ms=int(os.getenv("OFFICIAL_DATA_TIMEOUT_MS", "8000")),
+        twse_openapi_base_url=os.getenv("TWSE_OPENAPI_BASE_URL", "https://openapi.twse.com.tw/v1"),
+        tpex_openapi_base_url=os.getenv("TPEX_OPENAPI_BASE_URL", "https://www.tpex.org.tw/openapi"),
+        twse_attention_endpoint=os.getenv("TWSE_ATTENTION_ENDPOINT", ""),
+        twse_disposition_endpoint=os.getenv("TWSE_DISPOSITION_ENDPOINT", ""),
+        tpex_attention_endpoint=os.getenv("TPEX_ATTENTION_ENDPOINT", ""),
+        tpex_disposition_endpoint=os.getenv("TPEX_DISPOSITION_ENDPOINT", ""),
         market_data_cache_seconds=int(os.getenv("MARKET_DATA_CACHE_SECONDS", "10")),
         quote_cache_seconds=int(os.getenv("QUOTE_CACHE_SECONDS", "10")),
         kline_cache_seconds=int(os.getenv("KLINE_CACHE_SECONDS", "300")),
