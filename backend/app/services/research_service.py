@@ -196,10 +196,14 @@ class ResearchService:
             warnings.extend(cross.warnings[:3])
         return PortfolioOptimizeResult(capital=request.capital, weights=weights, themeExposure={key: round(value, 2) for key, value in theme_exposure.items()}, warnings=warnings, sourceNote="Simple score-weighted optimizer with max position and theme exposure guardrails; not a portfolio recommendation.")
 
-    async def walk_forward(self, symbols: list[str] | None = None) -> WalkForwardResult:
+    async def walk_forward(self, symbols: list[str] | None = None, db: Session | None = None) -> WalkForwardResult:
+        if db:
+            historical = self._walk_forward_from_factor_scores(symbols or DEFAULT_UNIVERSE[:8], db)
+            if historical:
+                return historical
         cross = await self.cross_section(symbols or DEFAULT_UNIVERSE[:8], persist=False)
         sample = [row for row in cross.ranks if row.data_quality != "low"]
-        warnings = ["Walk-forward MVP uses current cross-section snapshot only; persistent historical factor_scores are required for true validation."]
+        warnings = ["Walk-forward fallback uses current cross-section snapshot only; persistent historical factor_scores and price_bars are required for true validation."]
         if cross.warnings:
             warnings.extend(cross.warnings[:3])
         hit_rate = None
@@ -220,6 +224,49 @@ class ResearchService:
         total = fee + tax + slippage
         cost_pct = (total / notional * 100) if notional else 0
         return TradingCostResult(notional=round(notional, 2), fee=round(fee, 2), tax=round(tax, 2), slippage=round(slippage, 2), totalCost=round(total, 2), costPct=round(cost_pct, 4), note="Cost model includes fee, sell-side tax, and slippage estimate. Adjust rates for your broker and product.")
+
+    def _walk_forward_from_factor_scores(self, symbols: list[str], db: Session) -> WalkForwardResult | None:
+        rows = db.query(FactorScoreModel).filter(
+            FactorScoreModel.symbol.in_(symbols),
+            FactorScoreModel.model_version == "quant-v1",
+        ).order_by(FactorScoreModel.score_date.asc()).all()
+        unique_dates = sorted({row.score_date.date() for row in rows})
+        if len(rows) < 5 or len(unique_dates) < 2:
+            return None
+        returns: list[float] = []
+        hits = 0
+        max_drawdown = 0.0
+        warnings: list[str] = []
+        for row in rows:
+            forward = forward_return_from_bars(db, row.symbol, row.score_date, horizon_days=20)
+            if forward is None:
+                continue
+            returns.append(forward)
+            if forward > 0:
+                hits += 1
+            max_drawdown = min(max_drawdown, forward)
+        if len(returns) < 3:
+            return None
+        demo_factor_count = sum(1 for row in rows if row.data_source == "Demo")
+        if demo_factor_count:
+            warnings.append(f"factor_scores 中有 {demo_factor_count}/{len(rows)} 筆 Demo/fallback 資料，walk-forward 可信度降低。")
+        price_demo_count = db.query(PriceBarModel).filter(PriceBarModel.symbol.in_(symbols), PriceBarModel.data_source == "Demo").count()
+        if price_demo_count:
+            warnings.append(f"price_bars 中有 {price_demo_count} 筆 Demo/fallback 資料，forward return 只能做流程驗證。")
+        train_cutoff = unique_dates[max(0, int(len(unique_dates) * 0.7) - 1)]
+        return WalkForwardResult(
+            modelVersion="quant-v1",
+            trainStart=unique_dates[0].isoformat(),
+            trainEnd=train_cutoff.isoformat(),
+            testStart=unique_dates[min(len(unique_dates) - 1, int(len(unique_dates) * 0.7))].isoformat(),
+            testEnd=unique_dates[-1].isoformat(),
+            sampleSize=len(returns),
+            hitRate=round(hits / len(returns) * 100, 2),
+            averageForwardReturn=round(statistics.mean(returns), 2),
+            maxDrawdown=round(max_drawdown, 2),
+            warnings=warnings,
+            sourceNote="Walk-forward validation from persisted factor_scores joined with price_bars 20-day forward returns. MVP estimate; not investment advice.",
+        )
 
     def _persist_factor_scores(self, results, ranks: list[CrossSectionRank], db: Session) -> None:
         rank_by_symbol = {row.symbol: row for row in ranks}
@@ -297,6 +344,24 @@ class ResearchService:
             ("factor_scores", "request-time", 0.20, 0.30, 0.02),
         ]
         return [make_quality_report(dataset, provider, 0, missing, stale, error, now, quality_warning(dataset, 0, missing, stale, error)) for dataset, provider, missing, stale, error in checks]
+
+
+def forward_return_from_bars(db: Session, symbol: str, score_date: datetime, horizon_days: int = 20) -> float | None:
+    start_bar = db.query(PriceBarModel).filter(
+        PriceBarModel.symbol == symbol,
+        PriceBarModel.interval == "1d",
+        PriceBarModel.date_time >= score_date,
+    ).order_by(PriceBarModel.date_time.asc()).first()
+    if not start_bar or not start_bar.close:
+        return None
+    end_bar = db.query(PriceBarModel).filter(
+        PriceBarModel.symbol == symbol,
+        PriceBarModel.interval == "1d",
+        PriceBarModel.date_time >= score_date + timedelta(days=horizon_days),
+    ).order_by(PriceBarModel.date_time.asc()).first()
+    if not end_bar or not end_bar.close:
+        return None
+    return round((end_bar.close - start_bar.close) / start_bar.close * 100, 2)
 
 
 def parse_date(value: str) -> date | None:
