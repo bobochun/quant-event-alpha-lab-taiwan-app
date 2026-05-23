@@ -12,7 +12,7 @@ export interface DataTableColumn<T> {
   className?: string;
 }
 
-export function DataTable<T extends { id?: string }>({
+export function DataTable<T>({
   rows,
   columns,
   primaryAction,
@@ -80,7 +80,8 @@ export function DataTable<T extends { id?: string }>({
             </thead>
             <tbody>
               {visible.map((row, index) => {
-                const id = row.id ?? String(index);
+                const maybeId = (row as { id?: unknown }).id;
+                const id = typeof maybeId === "string" && maybeId ? maybeId : String(index);
                 const isOpen = expanded === id;
                 return (
                   <Fragment key={id}>
