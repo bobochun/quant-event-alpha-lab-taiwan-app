@@ -8,11 +8,11 @@ import { calculateAdaptivePositionSize } from "../lib/positionSizing";
 import { loadJournal, loadTradePlans, saveJournal, saveTradePlans } from "../lib/storage";
 import { generateTradePlan, tradePlanToMarkdown } from "../lib/tradePlan";
 import type { Event, PositionSizingResult, StrategyName } from "../lib/types";
-import { ErrorState, MiniMetricGrid, SectionCard, TradePlanCard, WarningList } from "../components/ui";
+import { ErrorState, MiniMetricGrid, RiskBadge, SectionCard, TradePlanCard, WarningList } from "../components/ui";
 import { daysBetween, formatNextAction, formatSharesLots, formatStrategy, todayTaipei } from "../lib/utils";
 import { markJournalLinked, markTradePlanCreated } from "../lib/actionState";
 import { loadSelectedEvent } from "../lib/navigationState";
-import { fetchLatestQuote } from "../lib/marketApi";
+import { fetchLatestQuote, fetchMarketWarnings, type MarketWarningItem } from "../lib/marketApi";
 
 const strategies: StrategyName[] = ["Pre-Earnings Drift", "ETF Rebalance Flow", "AI Theme Rotation", "Low Base Catalyst", "Event Pullback", "Manual Event Research"];
 const inputClass = "mt-1 w-full rounded-md border border-slate-200 bg-white p-2 text-slate-900 outline-none focus:border-cyan-500";
@@ -40,6 +40,8 @@ export default function TradePlanPage() {
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [lastPlanEventId, setLastPlanEventId] = useState<string | undefined>();
   const [quoteMessage, setQuoteMessage] = useState("");
+  const [officialWarnings, setOfficialWarnings] = useState<MarketWarningItem[]>([]);
+  const [officialWarningMessage, setOfficialWarningMessage] = useState("官方注意股 / 處置股尚未檢查。");
   const [form, setForm] = useState({
     symbol: "2330",
     strategy: "Low Base Catalyst" as StrategyName,
@@ -77,15 +79,38 @@ export default function TradePlanPage() {
     }
   }, []);
 
+  useEffect(() => {
+    void checkOfficialWarnings(form.symbol);
+  }, [form.symbol]);
+
   const stock = mockStocks.find((item) => item.symbol === form.symbol) ?? mockStocks[0];
   const relatedEvent = selectedEvent?.id === form.relatedEventId ? selectedEvent : mockEvents.find((event) => event.id === form.relatedEventId);
   const alphaRow = buildAlphaEngineResults(relatedEvent ? [relatedEvent] : [], mockStocks, mockThemes)[0];
   const portfolioExposure = analyzePortfolioExposure(mockPortfolio);
   const themeConcentrationPct = Math.max(...Object.entries(portfolioExposure.themeExposure).filter(([theme]) => stock.themes.includes(theme)).map(([, value]) => value), 0);
 
+  async function checkOfficialWarnings(symbol: string) {
+    setOfficialWarningMessage(`正在檢查 ${symbol} 是否為官方注意 / 處置標的...`);
+    try {
+      const payload = await fetchMarketWarnings([symbol]);
+      setOfficialWarnings(payload.items);
+      const providerProblems = payload.providerStatus.filter((row) => row.status === "error" || row.status === "degraded").map((row) => `${row.provider}: ${row.message ?? row.status}`);
+      if (payload.items.length) {
+        setOfficialWarningMessage(`${symbol} 目前命中 ${payload.items.length} 筆官方注意 / 處置警示。建立交易計畫前請降低部位並檢查流動性。`);
+      } else {
+        setOfficialWarningMessage(`${symbol} 未命中已設定 endpoint 的官方注意 / 處置資料。${providerProblems.length ? `提醒：${providerProblems.join("；")}` : payload.sourceNote}`);
+      }
+    } catch {
+      setOfficialWarnings([]);
+      setOfficialWarningMessage("官方注意 / 處置資料檢查失敗；不使用 Demo 冒充官方警示。 ");
+    }
+  }
+
   function submit() {
     setError("");
     try {
+      const officialDisposition = officialWarnings.some((row) => row.warningType === "disposition");
+      const officialAttention = officialWarnings.some((row) => row.warningType === "attention");
       const plan = generateTradePlan({
         ...form,
         name: stock.name,
@@ -94,9 +119,17 @@ export default function TradePlanPage() {
         eventDateDistanceDays: relatedEvent ? daysBetween(todayTaipei(), relatedEvent.eventDate) : undefined,
         preEventReturnPct: stock.sevenDayReturnPct,
         confidence: relatedEvent?.confidence,
-        isAttentionStock: stock.isAttentionStock,
-        isDispositionStock: stock.isDispositionStock
+        isAttentionStock: stock.isAttentionStock || officialAttention,
+        isDispositionStock: stock.isDispositionStock || officialDisposition
       });
+      const enrichedPlan = officialWarnings.length ? {
+        ...plan,
+        warnings: [
+          ...plan.warnings,
+          ...officialWarnings.map((row) => `${row.symbol} ${row.name} 官方${row.warningType === "disposition" ? "處置" : row.warningType === "attention" ? "注意" : "警示"}：${row.reason}`)
+        ],
+        sourceNote: `${plan.sourceNote} 官方警示檢查：${officialWarningMessage}`
+      } : plan;
       const regime = classifyMarketRegime(mockStocks);
       const sizing = calculateAdaptivePositionSize({
         capital: form.capital,
@@ -106,20 +139,20 @@ export default function TradePlanPage() {
         maxPositionPct: form.maxPositionPct,
         combinedAlphaScore: alphaRow?.alpha.combinedAlphaScore ?? 50,
         marketRegime: regime.regime,
-        eventRisk: alphaRow?.pricedInRisk ?? "medium",
+        eventRisk: officialDisposition ? "critical" : officialAttention ? "high" : alphaRow?.pricedInRisk ?? "medium",
         portfolioExposurePct: portfolioExposure.investedPct,
         themeConcentrationPct,
         volatility20d: stock.volatility20d,
         confidence: relatedEvent?.confidence ?? 50,
         dataQuality: relatedEvent?.confidence ?? 50
       });
-      const next = [plan, ...plans];
+      const next = [enrichedPlan, ...plans];
       setPlans(next);
       saveTradePlans(next);
-      setMarkdown(tradePlanToMarkdown(plan));
+      setMarkdown(`${tradePlanToMarkdown(enrichedPlan)}\n\n## 官方注意 / 處置檢查\n\n${officialWarnings.length ? officialWarnings.map((row) => `- ${row.warningType} / ${row.severity}: ${row.reason} (${row.provider})`).join("\n") : `- ${officialWarningMessage}`}`);
       setAdaptive(sizing);
-      setLastPlanEventId(plan.relatedEventId);
-      markTradePlanCreated(plan.relatedEventId);
+      setLastPlanEventId(enrichedPlan.relatedEventId);
+      markTradePlanCreated(enrichedPlan.relatedEventId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "無法產生交易計畫。");
     }
@@ -139,14 +172,14 @@ export default function TradePlanPage() {
         eventType: relatedEvent?.eventType,
         price: form.entryPrice,
         shares: 0,
-        reason: "已建立交易計畫。",
+        reason: officialWarnings.length ? `已建立交易計畫；官方警示：${officialWarnings.map((row) => row.warningType).join("、")}` : "已建立交易計畫。",
         eventThesis: form.eventInvalidationRule,
         wasEventPricedIn: alphaRow?.pricedInRisk === "high" || alphaRow?.pricedInRisk === "critical",
         didChaseNews: false,
         planFollowed: true,
         emotion: "disciplined",
         dataSource: "Manual",
-        sourceNote: "由交易計畫建立的手動日誌。"
+        sourceNote: officialWarnings.length ? `由交易計畫建立的手動日誌。官方警示：${officialWarningMessage}` : "由交易計畫建立的手動日誌。"
       },
       ...journal
     ]);
@@ -203,6 +236,14 @@ export default function TradePlanPage() {
             </div>
           </Step>
 
+          <SectionCard title="官方注意 / 處置檢查">
+            <div className="flex flex-wrap items-center gap-2">
+              <button className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800" onClick={() => void checkOfficialWarnings(form.symbol)}>重新檢查 {form.symbol}</button>
+              <span className="text-sm text-amber-700">{officialWarningMessage}</span>
+            </div>
+            {officialWarnings.length ? <div className="mt-3 grid gap-2">{officialWarnings.map((row) => <div key={`${row.provider}-${row.warningType}-${row.symbol}-${row.effectiveDate ?? row.fetchedAt}`} className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><div className="flex flex-wrap items-center gap-2"><RiskBadge level={row.severity} /><span className="font-semibold">{row.warningType === "disposition" ? "處置股" : row.warningType === "attention" ? "注意股" : "市場警示"}</span><span>{row.provider}</span></div><p className="mt-2 text-xs leading-5">{row.reason}</p></div>)}</div> : null}
+          </SectionCard>
+
           <Step title="Step 2 設定資金與風險" note="先決定這筆研究最多能承受多少虧損。">
             <NumberGrid form={form} setForm={setForm} keys={["capital", "riskPerTradePct", "maxPositionPct"]} labels={{ capital: "可用資金", riskPerTradePct: "單筆最大風險 %", maxPositionPct: "單檔最高部位 %" }} />
           </Step>
@@ -236,6 +277,7 @@ export default function TradePlanPage() {
             <MiniMetricGrid items={[
               { label: "研究股數", value: form.entryPrice > form.stopLoss ? formatSharesLots(Math.floor((form.capital * (form.riskPerTradePct / 100)) / (form.entryPrice - form.stopLoss))) : "無法計算" },
               { label: "事件日期", value: relatedEvent?.eventDate ?? "未設定" },
+              { label: "官方警示", value: officialWarnings.length ? `${officialWarnings.length} 筆` : "未命中" },
               { label: "已反應風險", value: alphaRow ? formatNextAction(alphaRow.alpha.nextAction) : "無資料" },
               { label: "關聯狀態", value: lastPlanEventId ? "已建立計畫" : "尚未儲存" }
             ]} />
