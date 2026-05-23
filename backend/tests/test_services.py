@@ -1,6 +1,7 @@
 import asyncio
 
 from app.services.institutional_flow_service import normalize_finmind_rows
+from app.services.market_warning_service import parse_warning_row
 from app.services.quote_service import QuoteService
 
 
@@ -47,3 +48,46 @@ def test_finmind_institutional_flow_alternate_field_names():
     assert result.dealer_net_buy_shares == 200
     assert result.total_institutional_net_buy_shares == 200
     assert result.provider == "finmind-flow"
+
+
+def test_official_market_warning_parser_chinese_fields():
+    item = parse_warning_row(
+        {
+            "有價證券代號": "2330",
+            "有價證券名稱": "台積電",
+            "注意原因": "最近六個營業日累積週轉率過高，列為注意股票",
+            "公布日期": "115/05/21",
+        },
+        provider="twse-attention",
+        market="TWSE",
+        warning_type="attention",
+        url="https://example.test/twse-attention",
+    )
+    assert item is not None
+    assert item.symbol == "2330"
+    assert item.name == "台積電"
+    assert item.warning_type == "attention"
+    assert item.severity == "medium"
+    assert item.effective_date == "2026-05-21"
+    assert item.data_source == "Official"
+
+
+def test_official_market_warning_parser_disposition_severity():
+    item = parse_warning_row(
+        {
+            "Code": "3017",
+            "Name": "奇鋐",
+            "DispositionReason": "再次達處置標準，延長分盤撮合",
+            "StartDate": "2026-05-21",
+            "EndDate": "2026-05-30",
+        },
+        provider="twse-disposition",
+        market="TWSE",
+        warning_type="disposition",
+        url="https://example.test/twse-disposition",
+    )
+    assert item is not None
+    assert item.symbol == "3017"
+    assert item.warning_type == "disposition"
+    assert item.severity == "critical"
+    assert item.end_date == "2026-05-30"
